@@ -490,3 +490,18 @@ git push origin main
 `firestore.rules` をv78用に変更しています。Firebase Consoleの Firestore Database > ルール も、このZIP内の `firestore.rules` と同じ内容へ更新してください。
 
 v78のランキングdocumentには `playerId` フィールドが追加されています。旧v77以前のランキングデータは読み取り表示には残せますが、v78の「自分の記録」は新しい固定playerId documentを対象にします。
+
+## v79 - Personal-best registration flow / name editing
+- Removed the small technical "not yet saved to Firebase" style note from the game-over ranking preview.
+- Ranking registration is offered only when the current run beats this device's personal best.
+- Runs that do not beat the personal best still remain in the local play history, but do not offer ranking registration.
+- After registration, the footer button now reads 「メインメニューへ」. When registration is still optional, it reads 「登録せずメインメニューへ」.
+- Added a player-name change control directly under the 「自己最高記録」 display on the title/game menu screen.
+- Name changes are stored locally and used for future ranking submissions without causing an extra Firebase ranking write by themselves.
+
+## v80: 過去の記録
+- タイトル画面の自己最高記録欄に「過去の記録」を追加。
+- 端末内に保存済みの直近最大100プレイを一覧表示。
+- 各記録で階数、日時、最終所持金、最終運気を確認可能。
+- 端末内最高記録には BEST 表示。
+- 履歴表示は localStorage のみを使用し、Firebase の read/write は発生しません。

@@ -406,10 +406,10 @@ export default function InfiniteElevator(){
   const [room,setRoom]=useState<Room>({tier:1,title:'エレベーターホール',desc:'ボタンを押して上の階を目指しましょう！'});
   const [roomIntro,setRoomIntro]=useState(false);
   const [overlay,setOverlay]=useState<{show:boolean,tier:number,steps:number,detail:string,locked:boolean}>({show:false,tier:1,steps:0,detail:'',locked:false});
-  const [selected,setSelected]=useState<number|null>(null); const [pendingOverflow,setPendingOverflow]=useState<Item|null>(null); const [gameover,setGameover]=useState(false); const [nickname,setNickname]=useState('');
+  const [selected,setSelected]=useState<number|null>(null); const [pendingOverflow,setPendingOverflow]=useState<Item|null>(null); const [gameover,setGameover]=useState(false); const [nickname,setNickname]=useState(''); const [nameDraft,setNameDraft]=useState(''); const [newPersonalBest,setNewPersonalBest]=useState(false);
   const [rankingMode,setRankingMode]=useState<RankingScope>('monthly');
   const [rankingViews,setRankingViews]=useState<Record<RankingScope,{rows:RankingEntry[];mine:MyRankingResult|null;loaded:boolean;cached:boolean}>>({monthly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
-  const [rankingStatus,setRankingStatus]=useState<'connecting'|'online'|'offline'|'error'>(firebaseReady?'connecting':'offline'); const [scoreSubmitted,setScoreSubmitted]=useState(false); const [scoreSubmitting,setScoreSubmitting]=useState(false); const [scoreSaveMessage,setScoreSaveMessage]=useState(''); const scoreSubmitLockRef=useRef(false); const [playerId,setPlayerId]=useState(''); const [scorePreview,setScorePreview]=useState<ScorePreviewBundle|null>(null); const [scorePreviewLoading,setScorePreviewLoading]=useState(false); const [scorePreviewError,setScorePreviewError]=useState(''); const [localHistorySummary,setLocalHistorySummary]=useState({count:0,best:0}); const runRecordedRef=useRef(false); const [forcedShop,setForcedShop]=useState(false); const [soundOn,setSoundOn]=useState(true);
+  const [rankingStatus,setRankingStatus]=useState<'connecting'|'online'|'offline'|'error'>(firebaseReady?'connecting':'offline'); const [scoreSubmitted,setScoreSubmitted]=useState(false); const [scoreSubmitting,setScoreSubmitting]=useState(false); const [scoreSaveMessage,setScoreSaveMessage]=useState(''); const scoreSubmitLockRef=useRef(false); const [playerId,setPlayerId]=useState(''); const [scorePreview,setScorePreview]=useState<ScorePreviewBundle|null>(null); const [scorePreviewLoading,setScorePreviewLoading]=useState(false); const [scorePreviewError,setScorePreviewError]=useState(''); const [localHistorySummary,setLocalHistorySummary]=useState({count:0,best:0}); const [localPlayHistory,setLocalPlayHistory]=useState(()=>[] as ReturnType<typeof loadPlayHistory>); const runRecordedRef=useRef(false); const [forcedShop,setForcedShop]=useState(false); const [soundOn,setSoundOn]=useState(true);
   const [rocks,setRocks]=useState<{gem:ItemId|null,count:number,open:boolean}[]>([]); const [picks,setPicks]=useState(0);
   const [shop,setShop]=useState<{item:Item,sold:boolean}[]>([]); const [bj,setBj]=useState<{playing:boolean,bet:number,p:number[],d:number[]}>({playing:false,bet:100,p:[],d:[]});
   const [forgeUsed,setForgeUsed]=useState(false);
@@ -439,7 +439,7 @@ export default function InfiniteElevator(){
   const [gameSpeed,setGameSpeed]=useState<1|2>(1);
   const fastTimeout=(fn:()=>void,ms:number)=>window.setTimeout(fn,ms/gameSpeed);
   const fastInterval=(fn:()=>void,ms:number)=>window.setInterval(fn,ms/gameSpeed);
-  const rules=useDisclosure(), guide=useDisclosure(), itemGuide=useDisclosure(), rank=useDisclosure(), stagePreview=useDisclosure(), inventoryPanel=useDisclosure(), logPanel=useDisclosure();
+  const rules=useDisclosure(), guide=useDisclosure(), itemGuide=useDisclosure(), rank=useDisclosure(), stagePreview=useDisclosure(), inventoryPanel=useDisclosure(), logPanel=useDisclosure(), nameEdit=useDisclosure(), historyModal=useDisclosure();
   const [previewStage,setPreviewStage]=useState<StageCatalogEntry|null>(null);
   const [statusDetail,setStatusDetail]=useState<'turns'|'luck'|'money'|null>(null);
   const menuVisualSrc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-v45.png`;
@@ -450,7 +450,9 @@ export default function InfiniteElevator(){
     const n=localStorage.getItem('infinite_elevator_nickname')||'';
     const id=getOrCreatePlayerId();
     setPlayerId(id);
-    setLocalHistorySummary(getLocalHistorySummary(loadPlayHistory()));
+    const history=loadPlayHistory();
+    setLocalPlayHistory(history);
+    setLocalHistorySummary(getLocalHistorySummary(history));
     setS(x=>({...x,highScore:Math.max(1,h)}));
     setNickname(n);
     if(!firebaseReady){
@@ -566,17 +568,20 @@ export default function InfiniteElevator(){
     }
   };
 
-  const start=()=>{playSfx('start',soundOn);runRecordedRef.current=false;setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);setRoomIntro(false);scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setS({...baseState,highScore:s.highScore});setMenu(false);setGameover(false);setDoors(true);setRoom({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});};
+  const start=()=>{playSfx('start',soundOn);runRecordedRef.current=false;setNewPersonalBest(false);setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);setRoomIntro(false);scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setS({...baseState,highScore:s.highScore});setMenu(false);setGameover(false);setDoors(true);setRoom({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});};
   const end=()=>{
     playSfx('gameover',soundOn);
     scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setAtmDeposit(0);setAtmInput('');
+    const beatHighScore=s.floor>s.highScore;
+    setNewPersonalBest(beatHighScore);
     if(!runRecordedRef.current){
       runRecordedRef.current=true;
       const history=appendPlayHistory({score:s.floor,floor:s.floor,money:s.money,luck:s.luck});
+      setLocalPlayHistory(history);
       setLocalHistorySummary(getLocalHistorySummary(history));
     }
     setGameover(true);
-    void refreshScorePreview(s.floor);
+    if(beatHighScore){void refreshScorePreview(s.floor);}else{setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);}
     setS(x=>{const h=Math.max(x.highScore,x.floor); localStorage.setItem('infinite_elevator_highscore',String(h)); return {...x,highScore:h};});
   };
 
@@ -759,7 +764,7 @@ export default function InfiniteElevator(){
   const discard=(i:number)=>{playSfx('discard',soundOn);setS(x=>({...x,items:x.items.filter((_,j)=>j!==i)}));setSelected(null);};
 
   const submitScore=async()=>{
-    if(scoreSubmitted||scoreSubmitLockRef.current)return;
+    if(!newPersonalBest||scoreSubmitted||scoreSubmitLockRef.current)return;
     const id=playerId||getOrCreatePlayerId();
     if(!playerId)setPlayerId(id);
     const hasEligiblePreview=!firebaseReady||Boolean(scorePreview&&(scorePreview.monthly.eligible||scorePreview.alltime.eligible));
@@ -788,7 +793,7 @@ export default function InfiniteElevator(){
           return;
         }
         setScoreSubmitted(true);
-        setScoreSaveMessage(updated.length?`${updated.join('・')}ランキングへ保存しました！`:'自己ベスト未更新のため、Firebaseへの書き込みはありませんでした。');
+        setScoreSaveMessage(updated.length?`${updated.join('・')}ランキングへ保存しました！`:'自己ベスト未更新のため、ランキングへの書き込みはありませんでした。');
         if(updated.length){
           playSfx('success',soundOn);
           log(`${updated.join('・')}ランキングの自己ベストを更新しました`);
@@ -1080,7 +1085,7 @@ export default function InfiniteElevator(){
   const disabled=finalMode ? (moving||gameover||slotSpinning||bj.playing) : (moving||gameover||slotSpinning||bj.playing||s.inHell);
 
   const scoreHasSaveTarget=Boolean(scorePreview&&(scorePreview.monthly.eligible||scorePreview.alltime.eligible));
-  const scoreRegistrationDisabled=scoreSubmitted||scoreSubmitting||scorePreviewLoading||Boolean(firebaseReady&&scorePreview&&!scoreHasSaveTarget);
+  const scoreRegistrationDisabled=!newPersonalBest||scoreSubmitted||scoreSubmitting||scorePreviewLoading||Boolean(firebaseReady&&scorePreview&&!scoreHasSaveTarget);
   const handleButtonSound=(e:React.MouseEvent)=>{const el=e.target as HTMLElement;if(el.closest('button'))playSfx('click',soundOn);};
 
   return <><style>{`@keyframes cathedralFlicker{0%,100%{opacity:.3}50%{opacity:.62}}@keyframes steelSweep{0%{transform:translateX(-160%)}100%{transform:translateX(160%)}}@keyframes elevatorAura{from{transform:scale(.9);opacity:.45}to{transform:scale(1.08);opacity:1}}@keyframes hypeBlink{0%,45%{opacity:1}46%,100%{opacity:.35}}@keyframes hellPulse{from{transform:scale(.9) rotate(-7deg)}to{transform:scale(1.10) rotate(7deg)}}@keyframes hellShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}@keyframes hellRing{0%{transform:scale(.55) rotate(0deg);opacity:.9}100%{transform:scale(1.55) rotate(220deg);opacity:0}}@keyframes revealPulse{from{transform:scale(.96);filter:brightness(.95)}to{transform:scale(1.06);filter:brightness(1.35)}}@keyframes ultimateWheel{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes floorTravel{0%{transform:translateY(26px) scale(.92);opacity:0}35%{opacity:1}70%{transform:translateY(-10px) scale(1.04);opacity:1}100%{transform:translateY(-34px) scale(1.08);opacity:0}}@keyframes floorLines{from{background-position:0 0}to{background-position:0 120px}}@keyframes warpSpin{0%{transform:rotate(0deg) scale(.85);filter:brightness(1)}50%{transform:rotate(180deg) scale(1.08);filter:brightness(1.8)}100%{transform:rotate(360deg) scale(.85);filter:brightness(1)}}@keyframes ultimateFlash{0%,100%{opacity:.45;filter:brightness(1)}50%{opacity:1;filter:brightness(1.8)}}@keyframes slotJackpot{from{transform:scale(.96);filter:brightness(.9)}to{transform:scale(1.04);filter:brightness(1.35)}}@keyframes reachPulse{from{transform:scale(.98);filter:brightness(1)}to{transform:scale(1.035);filter:brightness(1.45)}}@keyframes rareArrival{0%{opacity:0;transform:scale(.72)}45%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.24)}}@keyframes rareRing{0%{opacity:0;transform:scale(.35)}35%{opacity:.95}100%{opacity:0;transform:scale(1.65)}}@keyframes rareSpark{0%{opacity:0;transform:translateY(18px) scale(.6)}35%{opacity:1}100%{opacity:0;transform:translateY(-44px) scale(1.15)}}`}</style><Center h="100dvh" w="100vw" minH={0} p={0} overflow="hidden" bg="#020304">
@@ -1092,6 +1097,10 @@ export default function InfiniteElevator(){
         <Box position="absolute" top={{base:4,lg:5}} left={{base:4,lg:5}} zIndex={2} px={3} py={2} bg="rgba(5,6,7,.70)" borderTop="1px solid rgba(224,222,214,.30)" borderBottom="1px solid rgba(224,222,214,.15)" backdropFilter="blur(6px)">
           <HStack spacing={2}><Icon as={FaTrophy} color="#b7aa89"/><Text fontSize="10px" letterSpacing=".12em" color="rgba(235,232,222,.72)" fontWeight="bold">自己最高記録</Text></HStack>
           <Text mt={1} fontFamily="heading" fontSize="2xl" color="#eee9df" fontWeight="700" textShadow="0 0 12px rgba(255,255,255,.16)">{s.highScore} 階</Text>
+          <HStack mt={1.5} spacing={1} align="stretch">
+            <Button h="24px" minW="0" maxW="190px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" px={2} size="xs" variant="ghost" color="rgba(235,232,222,.78)" fontSize="9px" _hover={{bg:'rgba(255,255,255,.08)',color:'white'}} onClick={()=>{setNameDraft(nickname||'名無しの登山者');nameEdit.onOpen();}}>名前：{nickname||'名無しの登山者'}　変更</Button>
+            <Button h="24px" minW="0" px={2} size="xs" variant="ghost" color="rgba(235,232,222,.78)" fontSize="9px" _hover={{bg:'rgba(255,255,255,.08)',color:'white'}} onClick={()=>{setLocalPlayHistory(loadPlayHistory());historyModal.onOpen();}}>過去の記録</Button>
+          </HStack>
         </Box>
 
         <Flex mt="auto" px={{base:4,md:8,lg:16}} pb={{base:5,md:7,lg:8}} minH="0" justify="center" align="flex-end">
@@ -1230,6 +1239,45 @@ export default function InfiniteElevator(){
       </ModalBody><ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.24)" borderRadius="2px" _hover={{bg:'#351419'}} onClick={rank.onClose}>閉じる</Button></ModalFooter></ModalContent></Modal>
       <Modal isOpen={pendingOverflow!==null} onClose={()=>{}} closeOnOverlayClick={false} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="350px" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">持ち物がいっぱいです</ModalHeader><ModalBody><Text fontSize="xs" color="gray.300" mb={3}>新しく「{pendingOverflow?.name}」を入手しました。4つのうち捨てる1つを選んでください。</Text><Stack spacing={2}>{[...s.items,...(pendingOverflow?[pendingOverflow]:[])].map((it,i)=>{const pal=itemPalette(it);return <Button key={`${it.id}-${i}`} h="54px" justifyContent="flex-start" bg={pal.bg} color={pal.text} border="1px solid" borderColor={pal.border} _hover={{filter:'brightness(1.15)'}} onClick={()=>resolveOverflow(i)}><HStack w="100%"><Icon as={it.icon||FaGift} color={pal.icon}/><Box flex="1" textAlign="left"><Text fontSize="11px" fontWeight="900">{it.name}{it.type==='gem'?` ×${it.count||1}`:''}</Text><Text fontSize="9px" color="whiteAlpha.700">{i===3?'新しく入手したアイテム':'現在の持ち物'}</Text></Box><Text fontSize="10px" color="red.200" fontWeight="900">これを捨てる</Text></HStack></Button>})}</Stack></ModalBody></ModalContent></Modal>
       <Modal isOpen={selected!==null} onClose={()=>setSelected(null)} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="330px" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)"><HStack><Center w="36px" h="36px" rounded="lg" bg="gray.700"><Icon as={selectedItem?.icon||FaGift} color={selectedItem?itemPalette(selectedItem).icon:'gray.200'}/></Center><Text>{selectedItem?.name}</Text></HStack></ModalHeader><ModalBody><Text fontSize="sm" color="gray.100">{selectedItem?.desc}</Text></ModalBody><ModalFooter gap={2}>{selectedItem?.type==='consumable'&&<Button colorScheme="green" onClick={()=>useItem(selected!)}>使用する</Button>}{selectedItem?.type==='gem'&&(room.kind==='shop'||room.kind==='legendshop')&&<Button colorScheme="yellow" onClick={()=>sellGem(selected!)}>売却 +{(selectedItem.price*(selectedItem.count||1))}円</Button>}{selectedItem?.type==='gem'&&room.kind!=='shop'&&room.kind!=='legendshop'&&<Text fontSize="xs" color="gray.400" alignSelf="center">宝石はショップ系または伝説の神器商店で売却できます</Text>}<Button colorScheme="red" variant="outline" onClick={()=>discard(selected!)}>捨てる</Button><Button onClick={()=>setSelected(null)}>閉じる</Button></ModalFooter></ModalContent></Modal>
+      <Modal isOpen={historyModal.isOpen} onClose={historyModal.onClose} isCentered size="md">
+        <ModalOverlay bg="blackAlpha.850" backdropFilter="blur(6px)"/>
+        <ModalContent bg="linear-gradient(180deg,#14171b,#07080a)" maxW={{base:'calc(100vw - 24px)',md:'560px'}} maxH="86vh" border="1px solid rgba(218,216,208,.30)" borderRadius="4px" boxShadow="0 24px 80px rgba(0,0,0,.72)">
+          <ModalHeader fontFamily="heading" color="#eee9df" letterSpacing=".09em" borderBottom="1px solid rgba(170,174,176,.16)">過去の記録</ModalHeader>
+          <ModalBody px={{base:3,md:4}} py={3} overflowY="auto">
+            <Flex mb={3} px={3} py={2.5} justify="space-between" align="center" bg="rgba(255,255,255,.04)" border="1px solid rgba(205,207,205,.12)" borderRadius="4px">
+              <Box><Text fontSize="9px" color="gray.500">保存件数</Text><Text fontSize="sm" color="#eee9df" fontWeight="900">{localPlayHistory.length} / 100</Text></Box>
+              <Box textAlign="right"><Text fontSize="9px" color="gray.500">端末内ベスト</Text><Text fontSize="md" color="#f0d9aa" fontWeight="900">{getLocalHistorySummary(localPlayHistory).best.toLocaleString()}階</Text></Box>
+            </Flex>
+            {localPlayHistory.length===0?<Center py={10}><Text fontSize="sm" color="gray.500">まだプレイ記録がありません。</Text></Center>:<Stack spacing={2}>
+              {localPlayHistory.map((record,index)=>{
+                const ended=new Date(record.endedAt);
+                const valid=!Number.isNaN(ended.getTime());
+                const label=valid?ended.toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'日時不明';
+                const best=getLocalHistorySummary(localPlayHistory).best;
+                return <Box key={`${record.endedAt}-${index}`} px={3} py={2.5} bg="rgba(255,255,255,.035)" border="1px solid" borderColor={record.score===best?'rgba(240,217,170,.52)':'rgba(205,207,205,.12)'} borderRadius="4px">
+                  <Flex gap={3} align="center">
+                    <Box minW="38px" textAlign="center"><Text fontSize="9px" color="gray.500">#{localPlayHistory.length-index}</Text></Box>
+                    <Box flex="1" minW={0}><HStack spacing={2}><Text fontSize="md" color="#eee9df" fontWeight="900">{Number(record.floor||record.score).toLocaleString()}階</Text>{record.score===best&&<Badge colorScheme="yellow" fontSize="8px">BEST</Badge>}</HStack><Text mt={.5} fontSize="9px" color="gray.500">{label}</Text></Box>
+                    <Box textAlign="right"><Text fontSize="9px" color="gray.500">所持金</Text><Text fontSize="10px" color="#e8dcc6" fontWeight="800">{Number(record.money||0).toLocaleString()}円</Text><Text mt={.5} fontSize="9px" color="gray.500">運気 {Number(record.luck||0)}</Text></Box>
+                  </Flex>
+                </Box>;
+              })}
+            </Stack>}
+            <Text mt={3} fontSize="9px" color="gray.600" lineHeight="1.6">この一覧はこの端末のブラウザ内だけに保存されています。ランキング用のFirebase通信は行いません。</Text>
+          </ModalBody>
+          <ModalFooter borderTop="1px solid rgba(170,174,176,.12)"><Button w="100%" borderRadius="2px" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.24)" _hover={{bg:'#351419',borderColor:'#8f3940'}} onClick={historyModal.onClose}>閉じる</Button></ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={nameEdit.isOpen} onClose={nameEdit.onClose} isCentered>
+        <ModalOverlay bg="blackAlpha.800"/>
+        <ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="340px" border="1px solid rgba(218,216,208,.28)" borderRadius="4px">
+          <ModalHeader fontFamily="heading" color="#eee9df">プレイヤー名変更</ModalHeader>
+          <ModalBody><Input value={nameDraft} onChange={e=>setNameDraft(Array.from(e.target.value).slice(0,12).join(''))} maxLength={12} placeholder="プレイヤー名（12文字まで）" textAlign="center"/></ModalBody>
+          <ModalFooter gap={2}><Button variant="ghost" color="gray.300" onClick={nameEdit.onClose}>キャンセル</Button><Button colorScheme="yellow" onClick={()=>{const next=(nameDraft.trim()||'名無しの登山者').slice(0,12);setNickname(next);localStorage.setItem('infinite_elevator_nickname',next);nameEdit.onClose();}}>変更する</Button></ModalFooter>
+        </ModalContent>
+      </Modal>
+
       <Modal isOpen={gameover} onClose={()=>{}} closeOnOverlayClick={false} isCentered>
         <ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/>
         <ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW={{base:'360px',md:'430px'}} maxH="92vh" textAlign="center" border="1px solid rgba(218,216,208,.28)" borderRadius="2px">
@@ -1238,11 +1286,8 @@ export default function InfiniteElevator(){
             <Text fontSize="xs" color="gray.400">最終到達階数</Text>
             <Text fontSize="4xl" color="#eee9df" fontFamily="heading" fontWeight="black">{s.floor.toLocaleString()} 階</Text>
 
-            <Box mt={3} p={3} textAlign="left" bg="rgba(73,28,34,.20)" border="1px solid rgba(180,74,82,.34)" borderRadius="8px">
-              <HStack justify="space-between" mb={2}>
-                <Text fontSize="10px" color="#e8dcc6" fontWeight="900">今回スコアの暫定順位</Text>
-                <Text fontSize="9px" color="gray.500">まだFirebaseには未保存</Text>
-              </HStack>
+            {newPersonalBest?<Box mt={3} p={3} textAlign="left" bg="rgba(73,28,34,.20)" border="1px solid rgba(180,74,82,.34)" borderRadius="8px">
+              <Text mb={2} fontSize="10px" color="#e8dcc6" fontWeight="900">自己最高記録を更新！ 今回スコアの暫定順位</Text>
               {scorePreviewLoading&&<VStack py={3} spacing={2}><Progress w="100%" size="xs" isIndeterminate colorScheme="yellow"/><Text fontSize="10px" color="gray.400">月間・総合順位を確認中…</Text></VStack>}
               {!scorePreviewLoading&&scorePreviewError&&<Stack spacing={2}><Text fontSize="10px" color="red.200">{scorePreviewError}</Text><Button size="xs" variant="outline" colorScheme="yellow" onClick={()=>void refreshScorePreview(s.floor)}>順位を再確認</Button><Text fontSize="9px" color="gray.500">確認に失敗しても、必要なら下の登録ボタンから保存を試せます。</Text></Stack>}
               {!scorePreviewLoading&&scorePreview&&<SimpleGrid columns={2} spacing={2}>
@@ -1253,24 +1298,23 @@ export default function InfiniteElevator(){
                   <Text mt={1} fontSize="9px" color={p.eligible?'green.200':'gray.500'}>{p.eligible?(p.currentBestScore===null?'登録対象':'自己ベスト更新対象'):(p.wouldImprove?'Top1000保存対象外':'自己ベスト未更新')}</Text>
                 </Box>})}
               </SimpleGrid>}
-              {!firebaseReady&&<Text fontSize="10px" color="gray.400">Firebase未設定のため暫定順位は取得せず、端末内ランキングのみ利用します。</Text>}
-            </Box>
+              {!firebaseReady&&<Text fontSize="10px" color="gray.400">オンラインランキングを利用できないため、端末内の記録のみ保存できます。</Text>}
+            </Box>:<Box mt={3} p={3} bg="blackAlpha.300" borderRadius="8px"><Text fontSize="11px" color="gray.300" fontWeight="800">今回は自己最高記録の更新ではありませんでした。</Text><Text mt={1} fontSize="9px" color="gray.500">プレイ履歴には保存されています。</Text></Box>}
 
             <Flex mt={3} px={2} py={2} justify="space-between" align="center" bg="blackAlpha.300" borderRadius="6px">
               <Box textAlign="left"><Text fontSize="9px" color="gray.500">この端末のプレイ履歴</Text><Text fontSize="11px" color="#eee9df" fontWeight="800">{localHistorySummary.count}プレイ保存</Text></Box>
               <Box textAlign="right"><Text fontSize="9px" color="gray.500">端末内ベスト</Text><Text fontSize="12px" color="#f0d9aa" fontWeight="900">{localHistorySummary.best.toLocaleString()}階</Text></Box>
             </Flex>
-            <Text mt={1} fontSize="8px" color="gray.600">プレイ履歴はこの端末内だけに最大100件保存され、Firebaseの容量・write数は消費しません。</Text>
+            <Text mt={1} fontSize="8px" color="gray.600">プレイ履歴はこの端末内に最大100件保存されます。</Text>
 
-            <HStack mt={3} align="stretch">
+            {newPersonalBest&&<HStack mt={3} align="stretch">
               <Input value={nickname} onChange={e=>setNickname(Array.from(e.target.value).slice(0,12).join(''))} maxLength={12} isDisabled={scoreSubmitting||scoreSubmitted} placeholder="プレイヤー名（12文字まで）" textAlign="center"/>
-              <Button minW="108px" colorScheme="yellow" onClick={submitScore} isDisabled={scoreRegistrationDisabled} isLoading={scoreSubmitting} loadingText="保存中">{scoreSubmitted?'登録済み':scorePreviewLoading?'順位確認中':firebaseReady&&scorePreview&&!scoreHasSaveTarget?'保存不要':'ランキング登録'}</Button>
-            </HStack>
-            {scorePreview&&scoreHasSaveTarget&&<Text mt={1.5} fontSize="9px" color="gray.500">登録を押した場合も、Firebaseには月間・総合それぞれの最高記録1件だけを保持します。</Text>}
+              <Button minW="108px" colorScheme="yellow" onClick={submitScore} isDisabled={scoreRegistrationDisabled} isLoading={scoreSubmitting} loadingText="保存中">{scoreSubmitted?'登録済み':scorePreviewLoading?'順位確認中':firebaseReady&&scorePreview&&!scoreHasSaveTarget?'保存対象外':'ランキング登録'}</Button>
+            </HStack>}
             {scoreSaveMessage&&<Text mt={2} fontSize="10px" color={scoreSubmitted?'green.200':rankingStatus==='error'?'red.200':'yellow.100'}>{scoreSaveMessage}</Text>}
             <HStack justify="space-between" mt={3} color="gray.400"><Text fontSize="xs">最終所持金: <b>{s.money.toLocaleString()}円</b></Text><Text fontSize="xs">最終運気: <b>{s.luck}</b></Text></HStack>
           </ModalBody>
-          <ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.28)" borderRadius="2px" _hover={{bg:'#351419',borderColor:'#8f3940'}} isDisabled={scoreSubmitting} onClick={()=>{setGameover(false);setMenu(true)}}>{scoreSubmitting?'保存完了までお待ちください':'登録せずメインメニューへ'}</Button></ModalFooter>
+          <ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.28)" borderRadius="2px" _hover={{bg:'#351419',borderColor:'#8f3940'}} isDisabled={scoreSubmitting} onClick={()=>{setGameover(false);setMenu(true)}}>{scoreSubmitting?'保存完了までお待ちください':newPersonalBest&&!scoreSubmitted&&(!firebaseReady||Boolean(scorePreviewError)||scoreHasSaveTarget)?'登録せずメインメニューへ':'メインメニューへ'}</Button></ModalFooter>
         </ModalContent>
       </Modal>
     </Box>
