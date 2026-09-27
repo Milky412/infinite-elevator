@@ -499,9 +499,24 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - Added a player-name change control directly under the 「自己最高記録」 display on the title/game menu screen.
 - Name changes are stored locally and used for future ranking submissions without causing an extra Firebase ranking write by themselves.
 
-## v80: 過去の記録
+## v81: 過去の記録
 - タイトル画面の自己最高記録欄に「過去の記録」を追加。
 - 端末内に保存済みの直近最大100プレイを一覧表示。
 - 各記録で階数、日時、最終所持金、最終運気を確認可能。
 - 端末内最高記録には BEST 表示。
 - 履歴表示は localStorage のみを使用し、Firebase の read/write は発生しません。
+
+
+## v81
+- 「過去の記録」モーダル内のブラウザ保存に関する小さな注意書きを削除しました。
+
+## v82 changes
+- Made the title-screen "名前を変更" and "過去の記録" controls visually clear solid/outlined buttons for both mobile and desktop.
+- Separated the current player name from the action buttons for better readability.
+- Removed "このステージをプレイ" from stage guide cards and stage preview modal.
+- Updated the stage guide helper text accordingly.
+
+## v83
+- タイトル画面に「記録をリセット」ボタンを追加。
+- 確認ダイアログ後、端末内の最高記録と過去のプレイ履歴だけを削除。
+- プレイヤー名・端末用playerId・Firebase上の月間/総合ランキング記録は保持。
