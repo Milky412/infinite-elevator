@@ -367,14 +367,14 @@ function makeItem(id:ItemId,n=1):Item{
     case 'ring': return {id,name:`幸運の指輪★${n}`,type:'consumable',paramN:n,desc:`3ターンの間運気が+${n}。`,price:n*100+200,icon:FaRing};
     case 'sage_gem': return {id,name:'賢者の宝石',type:'consumable',desc:'現在階の1の位だけ運気上昇。',price:600,icon:FaGem};
     case 'party_set': return {id,name:'パーティーセット',type:'consumable',desc:'次回のボタン押下で好演出確定。',price:500,icon:FaGift};
-    case 'money_tree': return {id,name:`お金のなる木★${n}`,type:'passive',paramN:n,desc:`毎ターンお金+${200*n}円。`,price:n*400+400,icon:FaTree};
+    case 'money_tree': return {id,name:`お金のなる木★${n}`,type:'passive',paramN:n,desc:`毎ターンお金+${100*n}円。`,price:n*400+400,icon:FaTree};
     case 'blessing_charm': return {id,name:`幸せのお守り★${n}`,type:'passive',paramN:n,desc:`毎ターン運気+${n}。`,price:n*400+400,icon:FaStar};
     case 'shop_ticket': return {id,name:'お店チケット',type:'consumable',desc:'次の部屋が確実にお店になる。',price:0,icon:FaTicket};
     case 'ruby': return {id,name:'ルビー',type:'gem',count:n,desc:'ショップで300円で売れる宝石。',price:300,icon:FaGem};
     case 'emerald': return {id,name:'エメラルド',type:'gem',count:n,desc:'ショップで500円で売れる宝石。',price:500,icon:FaGem};
     case 'diamond': return {id,name:'ダイヤモンド',type:'gem',count:n,desc:'ショップで1000円で売れる宝石。',price:1000,icon:FaGem};
     case 'yata_mirror': return {id,name:'乱反射の八咫鏡',type:'passive',desc:'持っている間、ボタンで出た上昇階数が常に2倍になる伝説の神器。',price:2500,icon:FaWandMagicSparkles};
-    case 'kusanagi': return {id,name:'強運の天叢雲剣',type:'passive',desc:'持っている間、ボタンを押すたびに運気+2・所持金+400円。',price:1500,icon:FaBolt};
+    case 'kusanagi': return {id,name:'強運の天叢雲剣',type:'passive',desc:'持っている間、ボタンを押すたびに運気+2・所持金+200円。',price:1500,icon:FaBolt};
     case 'immortal_mag': return {id,name:'不老の八尺瓊勾玉',type:'passive',desc:'持っている間、Tier4以上の部屋が出るまで残り回数が減らない。Tier4以上に到着すると消失。',price:1500,icon:FaGem};
   }
 }
@@ -744,7 +744,7 @@ export default function InfiniteElevator(){
   const setupMining=(tier:number,gem:ItemId)=>{setRocks(Array.from({length:5},()=>{const ok=Math.random()<.60;const r=Math.random();const count=ok?(r<.55?1:r<.85?2:3):0;return {gem:ok?gem:null,count,open:false}}));setPicks(2);show({tier,title:gem==='ruby'?'ルビーの採掘場':gem==='emerald'?'エメラルドの採掘場':'ダイヤモンドの採掘場',desc:'5つの岩から2つ壊そう！宝石が出るかも！',result:'岩を選んで壊そう',kind:'mining'});};
   const setupShop=(tier:number,count:number)=>{const pool=[makeItem('mirror',ri(3,5)),makeItem('ring',ri(6,9)),makeItem('shop_ticket'),makeItem('sage_gem'),makeItem('party_set'),makeItem('money_tree',ri(1,2)),makeItem('blessing_charm',ri(1,2))].sort(()=>Math.random()-.5).slice(0,count).map(item=>({item,sold:false}));setShop(pool);show({tier,title:count===1?'小さなお店':count===3?'大きなお店':'ホームセンター',desc:'アイテムの購入が可能。※宝石のみ売却できます。',result:'ショップ営業中',kind:'shop'});};
 
-  const press=()=>{if(moving||gameover||s.turnsLeft<=0||s.inHell)return; playSfx('door',soundOn); setMoving(true);setDoors(false); let x={...s,items:[...s.items]}; const protectedByMag=x.items.some(i=>i.id==='immortal_mag'); if(!protectedByMag)x.turnsLeft--; x.items.forEach(i=>{if(i.id==='money_tree')x.money+=200*(i.paramN||1); if(i.id==='blessing_charm')x.luck+=(i.paramN||1); if(i.id==='kusanagi'){x.luck+=2;x.money+=400;}}); if(x.ringBuff.active){x.ringBuff={...x.ringBuff,turns:x.ringBuff.turns-1}; if(x.ringBuff.turns<=0){x.luck-=x.ringBuff.amount;x.ringBuff={active:false,turns:0,amount:0};}}
+  const press=()=>{if(moving||gameover||s.turnsLeft<=0||s.inHell)return; playSfx('door',soundOn); setMoving(true);setDoors(false); let x={...s,items:[...s.items]}; const protectedByMag=x.items.some(i=>i.id==='immortal_mag'); if(!protectedByMag)x.turnsLeft--; x.items.forEach(i=>{if(i.id==='money_tree')x.money+=100*(i.paramN||1); if(i.id==='blessing_charm')x.luck+=(i.paramN||1); if(i.id==='kusanagi'){x.luck+=2;x.money+=200;}}); if(x.ringBuff.active){x.ringBuff={...x.ringBuff,turns:x.ringBuff.turns-1}; if(x.ringBuff.turns<=0){x.luck-=x.ringBuff.amount;x.ringBuff={active:false,turns:0,amount:0};}}
     let targetTier=1;
     if(x.partySet){const r=Math.random();targetTier=r<.72?2:r<.92?3:4;}
     else {const r=Math.random();targetTier=r<.65?1:r<.90?2:r<.98?3:4;}
@@ -1231,7 +1231,7 @@ export default function InfiniteElevator(){
           <Bullet><b>パーティーセット</b>：次回のボタン演出が良い結果になりやすくなります。</Bullet>
         </HelpSection>
         <HelpSection title="常時効果アイテム">
-          <Bullet><b>お金のなる木★n</b>：ボタンを押すたびに所持金が <b>+200×n円</b> 増えます。</Bullet>
+          <Bullet><b>お金のなる木★n</b>：ボタンを押すたびに所持金が <b>+100×n円</b> 増えます。</Bullet>
           <Bullet><b>幸せのお守り★n</b>：ボタンを押すたびに運気が <b>+n</b> 増えます。</Bullet>
           <Bullet>どちらも持っているだけで発動するので、長期戦ほど強いアイテムです。</Bullet>
         </HelpSection>
