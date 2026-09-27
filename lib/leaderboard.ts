@@ -71,6 +71,22 @@ export type RankingView = {
 type CachedView = Omit<RankingView, 'cached'> & { expiresAt: number };
 const viewCache = new Map<string, CachedView>();
 
+function nicknameKey(name: string) {
+  // 同一端末でもニックネームが違えば別プレイヤーとして扱う。
+  // 同じニックネームは同じdocument IDになるため自己ベスト更新になる。
+  let h = 2166136261;
+  const normalized = name.trim().normalize('NFKC').toLowerCase();
+  for (let i = 0; i < normalized.length; i += 1) {
+    h ^= normalized.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+function getPlayerRankingId(uid: string, name: string) {
+  return `${uid}__${nicknameKey(name)}`;
+}
+
 export function getCurrentWeekKey(now = new Date()) {
   // 週間ランキングは日本時間の月曜00:00で切り替える。
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -145,8 +161,13 @@ async function submitScopeRanking(scope: RankingScope, entry: Omit<RankingEntry,
   if (!user) throw new Error('Anonymous sign-in failed');
 
   const rankingCollection = getRankingCollection(scope);
-  const rankingRef = doc(rankingCollection, user.uid);
-  const existingSnap = await getDoc(rankingRef);
+  const nicknameRef = doc(rankingCollection, getPlayerRankingId(user.uid, entry.name));
+  // v71以前の「UIDそのものをdocument IDにする」記録も同名ならそのまま更新する。
+  const legacyRef = doc(rankingCollection, user.uid);
+  const [nicknameSnap, legacySnap] = await Promise.all([getDoc(nicknameRef), getDoc(legacyRef)]);
+  const useLegacy = !nicknameSnap.exists() && legacySnap.exists() && String(legacySnap.data().name || '').trim() === entry.name.trim();
+  const rankingRef = useLegacy ? legacyRef : nicknameRef;
+  const existingSnap = useLegacy ? legacySnap : nicknameSnap;
   const existing = existingSnap.exists() ? (existingSnap.data() as RankingEntry) : null;
 
   if (existing && entry.score <= Number(existing.score || 0)) {
@@ -267,9 +288,11 @@ export async function loadMyRanking(scope: RankingScope = 'alltime'): Promise<My
   const user = await ensureAnonymousUser();
   if (!user) return {entry:null, rank:null, inTop1000:false};
   const ref = getRankingCollection(scope);
-  const mineSnap = await getDoc(doc(ref, user.uid));
-  if (!mineSnap.exists()) return {entry:null, rank:null, inTop1000:false};
-  const entry: RankingEntry = {id:mineSnap.id, ...(mineSnap.data() as RankingEntry)};
+  // 同じ端末から複数ニックネームを登録できるため、UIDに紐づく記録の中から最高記録を自分の順位として扱う。
+  const mineSnapshot = await getDocs(query(ref, where('uid', '==', user.uid), limit(100)));
+  if (mineSnapshot.empty) return {entry:null, rank:null, inTop1000:false};
+  const mineEntries = mineSnapshot.docs.map(d => ({id:d.id, ...(d.data() as RankingEntry)}));
+  const entry = mineEntries.reduce((best, cur) => Number(cur.score || 0) > Number(best.score || 0) ? cur : best);
   const higherCount = await getCountFromServer(query(ref, where('score', '>', entry.score)));
   const rank = higherCount.data().count + 1;
   return {entry, rank, inTop1000:rank <= RANKING_STORAGE_LIMIT};
