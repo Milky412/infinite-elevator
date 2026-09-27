@@ -13,7 +13,7 @@ import {
 } from 'react-icons/fa6';
 import type { Item, ItemId, Room, State } from '../lib/types';
 import { firebaseReady } from '../lib/firebase';
-import { ensureAnonymousUser, submitRanking, subscribeTopRankings, type RankingEntry } from '../lib/leaderboard';
+import { getCurrentWeekKey, getCurrentWeekLabel, loadRankingView, submitRankings, type MyRankingResult, type RankingEntry, type RankingScope } from '../lib/leaderboard';
 
 const tierMeta = [
   {name:'Tier 1 Common', bg:'radial-gradient(circle at center, rgba(14,165,233,.15), rgba(15,23,42,.95))', color:'cyan.300'},
@@ -406,7 +406,9 @@ export default function InfiniteElevator(){
   const [roomIntro,setRoomIntro]=useState(false);
   const [overlay,setOverlay]=useState<{show:boolean,tier:number,steps:number,detail:string,locked:boolean}>({show:false,tier:1,steps:0,detail:'',locked:false});
   const [selected,setSelected]=useState<number|null>(null); const [pendingOverflow,setPendingOverflow]=useState<Item|null>(null); const [gameover,setGameover]=useState(false); const [nickname,setNickname]=useState('');
-  const [rankings,setRankings]=useState<RankingEntry[]>([]); const [rankingStatus,setRankingStatus]=useState<'connecting'|'online'|'offline'|'error'>(firebaseReady?'connecting':'offline'); const [scoreSubmitted,setScoreSubmitted]=useState(false); const [forcedShop,setForcedShop]=useState(false); const [soundOn,setSoundOn]=useState(true);
+  const [rankingMode,setRankingMode]=useState<RankingScope>('weekly');
+  const [rankingViews,setRankingViews]=useState<Record<RankingScope,{rows:RankingEntry[];mine:MyRankingResult|null;loaded:boolean;cached:boolean}>>({weekly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
+  const [rankingStatus,setRankingStatus]=useState<'connecting'|'online'|'offline'|'error'>(firebaseReady?'connecting':'offline'); const [scoreSubmitted,setScoreSubmitted]=useState(false); const [forcedShop,setForcedShop]=useState(false); const [soundOn,setSoundOn]=useState(true);
   const [rocks,setRocks]=useState<{gem:ItemId|null,count:number,open:boolean}[]>([]); const [picks,setPicks]=useState(0);
   const [shop,setShop]=useState<{item:Item,sold:boolean}[]>([]); const [bj,setBj]=useState<{playing:boolean,bet:number,p:number[],d:number[]}>({playing:false,bet:100,p:[],d:[]});
   const [forgeUsed,setForgeUsed]=useState(false);
@@ -448,20 +450,39 @@ export default function InfiniteElevator(){
     setS(x=>({...x,highScore:Math.max(1,h)}));
     setNickname(n);
     if(!firebaseReady){
-      const r=JSON.parse(localStorage.getItem('infinite_elevator_local_rankings')||'[]');
-      setRankings(r);
+      setRankingStatus('offline');
+    }else{
+      // 起動時にはFirestoreを読まない。ランキングを開いた時だけ取得する。
+      setRankingStatus('connecting');
+    }
+  },[]);
+
+  const loadRankingMode=async(mode:RankingScope, force=false)=>{
+    setRankingMode(mode);
+    if(!firebaseReady){
+      const key=mode==='weekly'?`infinite_elevator_local_rankings_weekly_${getCurrentWeekKey()}`:'infinite_elevator_local_rankings';
+      const rows=JSON.parse(localStorage.getItem(key)||'[]').slice(0,50);
+      setRankingViews(v=>({...v,[mode]:{rows,mine:null,loaded:true,cached:true}}));
       setRankingStatus('offline');
       return;
     }
-    let unsub=()=>{};
-    ensureAnonymousUser()
-      .then(()=>{
-        setRankingStatus('online');
-        unsub=subscribeTopRankings(rows=>{setRankings(rows);setRankingStatus('online');},()=>setRankingStatus('error'));
-      })
-      .catch(()=>setRankingStatus('error'));
-    return ()=>unsub();
-  },[]);
+    if(rankingViews[mode].loaded&&!force){setRankingStatus('online');return;}
+    setRankingStatus('connecting');
+    try{
+      const view=await loadRankingView(mode,force);
+      setRankingViews(v=>({...v,[mode]:{rows:view.rows,mine:view.mine,loaded:true,cached:view.cached}}));
+      setRankingStatus('online');
+    }catch{
+      setRankingStatus('error');
+    }
+  };
+
+  const openRanking=()=>{
+    rank.onOpen();
+    setRankingMode('weekly');
+    void loadRankingMode('weekly');
+  };
+
 
   useEffect(()=>{
     window.dispatchEvent(new CustomEvent('infinite-elevator-menu-bgm',{detail:{enabled:menu&&!gameover&&soundOn}}));
@@ -702,9 +723,17 @@ export default function InfiniteElevator(){
     localStorage.setItem('infinite_elevator_nickname',name);
     if(firebaseReady){
       try{
-        await submitRanking({name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck});
+        const result=await submitRankings({name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck});
         setScoreSubmitted(true);
-        playSfx('success',soundOn);
+        setRankingViews({weekly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
+        const updated=[result.weekly.accepted?'週間':'',result.alltime.accepted?'総合':''].filter(Boolean);
+        if(updated.length){
+          playSfx('success',soundOn);
+          log(`${updated.join('・')}ランキングの自己ベストを更新しました`);
+        }else{
+          playSfx('click',soundOn);
+          log('週間・総合とも自己ベスト未更新、またはTop1000圏外でした');
+        }
         return;
       }catch{
         setRankingStatus('error');
@@ -712,13 +741,15 @@ export default function InfiniteElevator(){
         return;
       }
     }
-    const local=JSON.parse(localStorage.getItem('infinite_elevator_local_rankings')||'[]');
-    const all=[...local,{name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck}].sort((a:any,b:any)=>b.score-a.score).slice(0,50);
-    setRankings(all);
-    localStorage.setItem('infinite_elevator_local_rankings',JSON.stringify(all));
+    const scoreRow={name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck};
+    const updateLocal=(key:string)=>{const local=JSON.parse(localStorage.getItem(key)||'[]');const all=[...local,scoreRow].sort((a:any,b:any)=>b.score-a.score).slice(0,1000);localStorage.setItem(key,JSON.stringify(all));};
+    updateLocal('infinite_elevator_local_rankings');
+    updateLocal(`infinite_elevator_local_rankings_weekly_${getCurrentWeekKey()}`);
+    setRankingViews({weekly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
     setScoreSubmitted(true);
     playSfx('success',soundOn);
   };
+
   const card=()=>Math.min(10,ri(1,10)); const hand=(a:number[])=>a.reduce((p,c)=>p+c,0);
   const moveByEvent=(delta:number,label:string)=>{
     if(eventAnimating)return;
@@ -880,7 +911,7 @@ export default function InfiniteElevator(){
     if(kind==='survey'){const sv=room.payload as {q:string;a:string;b:string;wa:number;wb:number;genre:string};const vote=(choice:'a'|'b')=>{if(eventAnimating)return;setEventAnimating(true);const va=ri(0,sv.wa),vb=ri(0,sv.wb);const chosenVotes=choice==='a'?va:vb;const otherVotes=choice==='a'?vb:va;const pickedLabel=choice==='a'?sv.a:sv.b;playSfx('click',soundOn);show({...room,result:`女の子「${pickedLabel}なんだね！ ちょっと集計するから待ってて…」`,resultType:'neutral'});window.setTimeout(()=>{playSfx('roulette',soundOn);show({...room,result:`女の子「結果が出たよ！ ${sv.a}は${va}票、${sv.b}は${vb}票！」`,resultType:'neutral'});},900);window.setTimeout(()=>{if(va===vb){playSfx('click',soundOn);show({...room,kind:undefined,result:`女の子「まさかの同票！ 今回は引き分けだね！」 ／ ${sv.a} ${va}票・${sv.b} ${vb}票 ／ 運気変化なし`,resultType:'neutral'});setEventAnimating(false);return;}const win=chosenVotes>otherVotes;const delta=win?ri(5,10):-ri(3,6);patch(current=>({luck:Math.max(0,current.luck+delta)}));playSfx(win?'success':'fail',soundOn);show({...room,kind:undefined,result:`女の子「${win?'やった！あなたは多数派だよ！':'あらら…少数派だったみたい。'}」 ／ ${sv.a} ${va}票・${sv.b} ${vb}票 ／ 運気 ${delta>0?'+':''}${delta}`,resultType:win?'success':'danger'});setEventAnimating(false);},1900);};return <Stack spacing={2}><Box p={3} bg="pink.950" border="1px solid" borderColor="pink.500" rounded="xl"><HStack align="start" spacing={2}><Center flexShrink={0} w="38px" h="38px" rounded="full" bg="pink.800" border="1px solid" borderColor="pink.300"><Text fontSize="xl">👧</Text></Center><Box flex="1"><Text fontSize="9px" color="pink.200" mb={1}>アンケート娘 / {sv.genre}</Text><Box px={2.5} py={2} bg="whiteAlpha.100" borderRadius="lg" position="relative"><Text fontSize="11px" color="white" fontWeight="800" lineHeight="1.65">「{sv.q}」</Text></Box></Box></HStack>{eventAnimating&&<Text mt={2} fontSize="9px" color="pink.100" textAlign="center">女の子が集計結果を確認しています…</Text>}</Box><Box px={3} py={2} bg="blackAlpha.500" border="1px solid" borderColor="pink.700" rounded="lg"><Text fontSize="9px" color="pink.100" lineHeight="1.6">どちらかを選ぶとアンケート結果を集計。あなたが多数派なら運気 +5〜10、少数派なら運気 -3〜6。同票なら変化なし。</Text></Box><SimpleGrid columns={2} spacing={2}><Button h="48px" colorScheme="pink" variant="outline" isDisabled={eventAnimating} onClick={()=>vote('a')}>{sv.a}</Button><Button h="48px" colorScheme="pink" variant="outline" isDisabled={eventAnimating} onClick={()=>vote('b')}>{sv.b}</Button></SimpleGrid></Stack>;}
     if(kind==='atm'){if(atmDeposit>0)return <Stack spacing={2}><Box p={3} bg="cyan.950" border="1px solid" borderColor="cyan.500" rounded="xl"><Text fontSize="10px" color="cyan.200">前回の預金</Text><Text fontSize="2xl" color="yellow.200" fontWeight="black" textAlign="center">{atmDeposit}円 → {atmDeposit*5}円</Text></Box><Button colorScheme="cyan" onClick={()=>{const pay=atmDeposit*5;patch(current=>({money:current.money+pay}));setAtmDeposit(0);playSfx('jackpot',soundOn);show({...room,kind:undefined,result:`ATM満期：${pay}円を受け取った！`,resultType:'gold'});}}>5倍になったお金を受け取る</Button></Stack>;const amount=Math.max(0,Math.floor(Number(atmInput)||0));return <Stack spacing={2}><Box p={3} bg="cyan.950" border="1px solid" borderColor="cyan.500" rounded="xl"><Text fontSize="10px" color="cyan.100">次にATMへ遭遇すると預けた金額が5倍になります。ゲーム終了で預金は消えます。</Text></Box><Input type="number" min={0} value={atmInput} onChange={e=>setAtmInput(e.target.value)} placeholder={`預ける金額（所持金 ${s.money}円）`} bg="blackAlpha.500"/><HStack><Button flex="1" variant="outline" colorScheme="cyan" onClick={()=>setAtmInput(String(s.money))}>全額</Button><Button flex="2" colorScheme="cyan" isDisabled={amount<=0||amount>s.money} onClick={()=>{patch(current=>({money:current.money-amount}));setAtmDeposit(amount);setAtmInput('');playSfx('coin',soundOn);show({...room,kind:undefined,result:`ATMに${amount}円を預けた。次回は${amount*5}円！`,resultType:'success'});}}>預ける</Button></HStack></Stack>;}
     if(kind==='legendshop'){const goods=[makeItem('yata_mirror'),makeItem('kusanagi'),makeItem('immortal_mag')];return <Stack spacing={2}><Box px={3} py={2} bg="blackAlpha.500" border="1px solid" borderColor="yellow.700" rounded="lg"><Text fontSize="9px" color="yellow.100">この店では神器の購入だけでなく、持っているルビー・エメラルド・ダイヤモンドも売却できます。下のアイテム欄から宝石を選んでください。</Text></Box>{goods.map((it,i)=><Box key={it.id} p={2.5} bg="rgba(44,30,5,.72)" border="1px solid" borderColor="yellow.600" rounded="lg"><Flex align="start" gap={2}><Icon as={it.icon||FaStar} color="yellow.200" mt={1}/><Box flex="1"><Text fontSize="11px" color="yellow.100" fontWeight="900">{it.name} / {it.price}円</Text><Text mt={1} fontSize="9px" color="gray.200" lineHeight="1.55">{it.desc}</Text></Box></Flex><Button mt={2} w="100%" size="sm" colorScheme="yellow" color="black" isDisabled={legendShopUsed||s.money<it.price} onClick={()=>{if(legendShopUsed||s.money<it.price){playSfx('fail',soundOn);return;}patch(current=>({money:current.money-it.price}));addItem(it);setLegendShopUsed(true);playSfx('jackpot',soundOn);show({...room,result:`${it.name} を購入！ この訪問での購入は完了。`,resultType:'gold'});}}>購入する</Button></Box>)}</Stack>;}
-    if(kind==='warp')return <Stack spacing={2}><Center position="relative" h="96px" overflow="hidden"><Box position="absolute" w="86px" h="86px" rounded="full" bg="conic-gradient(#22d3ee,#8b5cf6,#2563eb,#22d3ee)" opacity={warpAnimating ? .9 : .35} animation={warpAnimating?'warpSpin .45s linear infinite':'none'} boxShadow={warpAnimating?'0 0 34px rgba(34,211,238,.75)':'0 0 16px rgba(34,211,238,.25)'}/><Box position="absolute" w="58px" h="58px" rounded="full" bg="#05060a"/><Text zIndex={2} fontSize="10px" color="cyan.100" fontWeight="900" textAlign="center">{warpMessage||'ワープ先を選択'}</Text></Center><Action title="小さなワープホール" sub="0 ～ +100階" onClick={()=>warp(0,100,'小さなワープホール')}/><Action title="大きなワープホール" sub="-30 ～ +200階" onClick={()=>warp(-30,200,'大きなワープホール')}/><Action title="巨大なワープホール" sub="-300 ～ +800階" onClick={()=>warp(-300,800,'巨大なワープホール')}/></Stack>;
+    if(kind==='warp')return <Stack spacing={1.5} w="100%"><Center position="relative" h={{base:'68px',md:'78px'}} overflow="hidden"><Box position="absolute" w={{base:'62px',md:'70px'}} h={{base:'62px',md:'70px'}} rounded="full" bg="conic-gradient(#22d3ee,#8b5cf6,#2563eb,#22d3ee)" opacity={warpAnimating ? .9 : .35} animation={warpAnimating?'warpSpin .45s linear infinite':'none'} boxShadow={warpAnimating?'0 0 30px rgba(34,211,238,.75)':'0 0 14px rgba(34,211,238,.25)'}/><Box position="absolute" w={{base:'42px',md:'48px'}} h={{base:'42px',md:'48px'}} rounded="full" bg="#05060a"/><Text zIndex={2} px={2} fontSize={{base:'9px',md:'10px'}} color="cyan.100" fontWeight="900" textAlign="center">{warpMessage||'ワープ先を選択'}</Text></Center><SimpleGrid columns={{base:1,md:3}} spacing={1.5}>{[['小さなワープホール','0 ～ +100階',0,100],['大きなワープホール','-30 ～ +200階',-30,200],['巨大なワープホール','-300 ～ +800階',-300,800]].map(([title,sub,min,max]:any)=><Button key={title} h={{base:'44px',md:'58px'}} py={1.5} px={2} bg="linear-gradient(180deg,rgba(20,42,52,.94),rgba(5,12,18,.96))" color="cyan.50" border="1px solid rgba(103,232,249,.34)" borderRadius="6px" _hover={{bg:'rgba(8,47,73,.95)',borderColor:'cyan.300'}} isDisabled={warpAnimating} onClick={()=>warp(min,max,title)}><VStack spacing={0}><Text fontSize={{base:'11px',md:'12px'}} fontWeight="900" noOfLines={1}>{title}</Text><Text fontSize={{base:'9px',md:'10px'}} color="cyan.200">{sub}</Text></VStack></Button>)}</SimpleGrid></Stack>;
     if(kind==='auction')return <Stack spacing={1}><Action title="乱反射の鏡★8 / 500円" onClick={()=>buyAuction(makeItem('mirror',8))}/><Action title="幸運の指輪★15 / 500円" onClick={()=>buyAuction(makeItem('ring',15))}/></Stack>;
     if(kind==='ultimate')return <Stack spacing={2}>
       <Box p={2.5} bg="rgba(15,10,2,.72)" border="1px solid" borderColor="yellow.500" rounded="xl">
@@ -993,7 +1024,7 @@ export default function InfiniteElevator(){
             <Center>
               <Button w="100%" maxW="280px" h="56px" bg="linear-gradient(180deg,#17191c,#090a0c)" color="#f1eee6" border="1px solid rgba(232,229,220,.46)" borderRadius="2px" fontFamily="heading" letterSpacing=".16em" fontSize="md" leftIcon={<FaPlay/>} boxShadow="inset 0 1px rgba(255,255,255,.06),0 10px 28px rgba(0,0,0,.55)" _hover={{bg:'linear-gradient(180deg,#3a171b,#12090b)',borderColor:'#b8565c',color:'white'}} _active={{transform:'translateY(1px)',bg:'#18090c'}} onClick={start}>ゲームを始める</Button>
             </Center>
-            <SimpleGrid mt={2.5} columns={2} spacing={{base:1.5,lg:2}}>{[[FaRankingStar,'ランキング',rank.onOpen],[FaCircleQuestion,'ルール説明',rules.onOpen],[FaBookOpen,'ステージ図鑑',guide.onOpen],[FaGem,'アイテム図鑑',itemGuide.onOpen]].map(([ic,label,fn]:any)=><Button key={label} size="sm" minH="42px" bg="rgba(7,8,10,.78)" color="rgba(237,234,225,.84)" border="1px solid rgba(180,184,186,.24)" borderRadius="2px" leftIcon={<Icon as={ic}/>} fontFamily="heading" fontSize="11px" letterSpacing=".08em" _hover={{bg:'rgba(54,18,22,.88)',borderColor:'rgba(174,66,74,.75)',color:'white'}} onClick={fn}>{label}</Button>)}</SimpleGrid>
+            <SimpleGrid mt={2.5} columns={2} spacing={{base:1.5,lg:2}}>{[[FaRankingStar,'ランキング',openRanking],[FaCircleQuestion,'ルール説明',rules.onOpen],[FaBookOpen,'ステージ図鑑',guide.onOpen],[FaGem,'アイテム図鑑',itemGuide.onOpen]].map(([ic,label,fn]:any)=><Button key={label} size="sm" minH="42px" bg="rgba(7,8,10,.78)" color="rgba(237,234,225,.84)" border="1px solid rgba(180,184,186,.24)" borderRadius="2px" leftIcon={<Icon as={ic}/>} fontFamily="heading" fontSize="11px" letterSpacing=".08em" _hover={{bg:'rgba(54,18,22,.88)',borderColor:'rgba(174,66,74,.75)',color:'white'}} onClick={fn}>{label}</Button>)}</SimpleGrid>
           </Box>
         </Flex>
       </Flex>}
@@ -1006,8 +1037,8 @@ export default function InfiniteElevator(){
         <Box position="absolute" top={{base:2,md:3}} left={{base:2,md:3}} zIndex={25} maxW={{base:'calc(100% - 16px)',md:'760px'}} px={{base:2,md:3}} py={{base:1.5,md:2}} bg="rgba(4,6,8,.78)" backdropFilter="blur(9px)" border="1px solid rgba(218,216,208,.24)" borderRadius="10px" boxShadow="0 12px 30px rgba(0,0,0,.38)">
           <VStack spacing={1.5} align="stretch">
             <HStack spacing={{base:1.5,md:2.5}} align="center">
-              <HStack minW={{base:'78px',md:'108px'}} spacing={1.5} pr={{base:1,md:2}} borderRight="1px solid rgba(255,255,255,.14)"><Box><Text fontSize="7px" color="gray.400" fontWeight="700">CURRENT FLOOR</Text><HStack spacing={1}><Text fontFamily="mono" fontSize={{base:'lg',md:'2xl'}} color="#f2eee5" fontWeight="900">{s.floor}</Text><Text fontSize="9px" color="gray.300">F</Text></HStack></Box></HStack>
-              <HStack spacing={1} flex="1" minW={0}>{[[FaBolt,'残り',s.turnsLeft,'yellow.300','turns'],[FaStar,'運気',s.luck,'green.300','luck'],[FaCoins,'所持金',s.money,'yellow.200','money']].map(([ic,l,v,c,key]:any)=><Button key={l} flex="1" minW={0} h="auto" px={{base:1,md:2}} py={1} justifyContent="flex-start" bg="rgba(0,0,0,.34)" border="1px solid rgba(255,255,255,.06)" borderRadius="6px" _hover={{bg:'rgba(255,255,255,.10)',borderColor:'rgba(255,255,255,.18)'}} _active={{transform:'translateY(1px)'}} onClick={()=>setStatusDetail(key)}><HStack spacing={1} minW={0}><Icon as={ic} color={c} boxSize={3}/><Box minW={0} textAlign="left"><Text fontSize="7px" color="gray.400">{l}</Text><Text fontSize={{base:'9px',md:'11px'}} fontFamily="mono" fontWeight="900" color={c} noOfLines={1}>{v}{l==='所持金'?'円':''}</Text></Box></HStack></Button>)}</HStack>
+              <HStack minW={{base:'86px',md:'118px'}} spacing={1.5} pr={{base:1,md:2}} borderRight="1px solid rgba(255,255,255,.14)"><Box><Text fontSize={{base:'8px',md:'9px'}} color="gray.400" fontWeight="700">CURRENT FLOOR</Text><HStack spacing={1}><Text fontFamily="mono" fontSize={{base:'xl',md:'3xl'}} color="#f2eee5" fontWeight="900">{s.floor}</Text><Text fontSize="9px" color="gray.300">F</Text></HStack></Box></HStack>
+              <HStack spacing={{base:1,md:1.5}} flex="1" minW={0}>{[[FaBolt,'残り',s.turnsLeft,'yellow.300','turns'],[FaStar,'運気',s.luck,'green.300','luck'],[FaCoins,'所持金',s.money,'yellow.200','money']].map(([ic,l,v,c,key]:any)=><Button key={l} flex="1" minW={0} h={{base:'44px',md:'50px'}} px={{base:1.5,md:2.5}} py={{base:1,md:1.5}} justifyContent="flex-start" bg="rgba(0,0,0,.46)" border="1px solid rgba(255,255,255,.10)" borderRadius="8px" _hover={{bg:'rgba(255,255,255,.12)',borderColor:'rgba(255,255,255,.22)'}} _active={{transform:'translateY(1px)'}} onClick={()=>setStatusDetail(key)}><HStack spacing={{base:1,md:1.5}} minW={0} w="100%"><Icon as={ic} color={c} boxSize={{base:3.5,md:4}} flexShrink={0}/><Box minW={0} textAlign="left" flex="1"><Text fontSize={{base:'8px',md:'9px'}} color="gray.300" fontWeight="700">{l}</Text><Text fontSize={{base:'11px',md:'14px'}} lineHeight="1.15" fontFamily="mono" fontWeight="900" color={c} noOfLines={1}>{key==='money'?`${Number(v).toLocaleString('ja-JP')}円`:v}</Text></Box></HStack></Button>)}</HStack>
               <HStack spacing={1} flexShrink={0}><Button size="xs" minW="38px" h="28px" px={1.5} bg={gameSpeed===2?'#521920':'rgba(255,255,255,.07)'} color="white" border="1px solid rgba(200,200,200,.18)" onClick={()=>setGameSpeed(v=>v===1?2:1)}>×{gameSpeed}</Button><IconButton aria-label="bgm" size="xs" h="28px" minW="28px" variant="ghost" color={soundOn?'#ddd7cb':'gray.500'} icon={soundOn?<FaVolumeHigh/>:<FaVolumeXmark/>} onClick={()=>setSoundOn(v=>!v)}/></HStack>
             </HStack>
             <HStack spacing={1.5} align="center" justify="flex-start" w="100%">
@@ -1101,7 +1132,15 @@ export default function InfiniteElevator(){
           <Bullet>宝石を多く抱えた時は、お店チケットで売却タイミングを作ると整理しやすくなります。</Bullet>
         </HelpSection>
       </InfoModal>
-      <Modal isOpen={rank.isOpen} onClose={rank.onClose} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW={{base:'340px',md:'560px'}} border="1px solid rgba(218,216,208,.28)" borderRadius="2px" boxShadow="0 24px 80px rgba(0,0,0,.72)"><ModalHeader fontFamily="heading" letterSpacing=".08em" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">全国ランキング (Top 50)</ModalHeader><ModalBody maxH="55vh" overflowY="auto"><Text mb={2} fontSize="10px" color={rankingStatus==='online'?'#9ab39e':rankingStatus==='connecting'?'#c7b58e':'#b57d7d'}>{rankingStatus==='online'?'● Firebaseランキング接続中':rankingStatus==='connecting'?'Firebaseへ接続中…':rankingStatus==='offline'?'ローカルランキングモード':'Firebase接続エラー'}</Text>{rankings.length?rankings.map((r,i)=><Flex key={r.id||i} py={1.5} borderBottom="1px solid" borderColor="rgba(200,202,200,.12)"><Text w="30px" color="#9b4148">#{i+1}</Text><Text flex="1" noOfLines={1} color="#dfdcd4">{r.name}</Text><Text color="#d7d1c3">{r.score}階</Text></Flex>):<Text color="gray.500">まだ登録がありません</Text>}</ModalBody><ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.24)" borderRadius="2px" _hover={{bg:'#351419'}} onClick={rank.onClose}>閉じる</Button></ModalFooter></ModalContent></Modal>
+      <Modal isOpen={rank.isOpen} onClose={rank.onClose} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW={{base:'360px',md:'640px'}} border="1px solid rgba(218,216,208,.28)" borderRadius="8px" boxShadow="0 24px 80px rgba(0,0,0,.72)"><ModalHeader fontFamily="heading" letterSpacing=".08em" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">全国ランキング</ModalHeader><ModalBody maxH="72vh" overflowY="auto">
+        <Tabs index={rankingMode==='weekly'?0:1} onChange={(i)=>{const mode:RankingScope=i===0?'weekly':'alltime';void loadRankingMode(mode);}} variant="soft-rounded" colorScheme="red" size="sm">
+          <TabList mb={3}><Tab flex="1">週間</Tab><Tab flex="1">総合</Tab></TabList>
+          <Box mb={3} px={2} py={1.5} bg="blackAlpha.300" borderRadius="6px"><Text fontSize="9px" color="gray.400">{rankingMode==='weekly'?`週間 ${getCurrentWeekLabel()}・月曜0:00(JST)更新`:'全期間の自己ベスト'}</Text><Text mt={.5} fontSize="9px" color={rankingViews[rankingMode].cached?'cyan.200':'gray.500'}>{rankingViews[rankingMode].cached?'キャッシュから表示中（再読込を節約）':'Top50 + 自分の順位のみ取得 / 51〜1000位は保存のみ'}</Text></Box>
+          <Text mb={2} fontSize="10px" color={rankingStatus==='online'?'#9ab39e':rankingStatus==='connecting'?'#c7b58e':'#b57d7d'}>{rankingStatus==='online'?'● ランキング取得済み':rankingStatus==='connecting'?'ランキング読込中…':rankingStatus==='offline'?'ローカルランキングモード':'Firebase接続エラー'}</Text>
+          {firebaseReady&&<Box mb={4} p={3} bg="rgba(84,28,34,.28)" border="1px solid rgba(180,74,82,.42)" borderRadius="8px"><Text fontSize="9px" color="gray.400" letterSpacing=".10em">{rankingMode==='weekly'?'今週のあなた':'総合のあなた'}</Text>{rankingStatus==='connecting'&&!rankingViews[rankingMode].loaded?<Text mt={1} color="gray.400">集計中…</Text>:rankingViews[rankingMode].mine?.entry&&rankingViews[rankingMode].mine?.rank?<><HStack mt={1} align="baseline"><Text fontFamily="heading" fontSize="3xl" color="#f0d9aa" fontWeight="900">{rankingViews[rankingMode].mine?.rank}位</Text><Text fontSize="10px" color="gray.400">/ Top 1000</Text></HStack><Flex mt={1} justify="space-between"><Text fontSize="11px" color="#eee9df" noOfLines={1}>{rankingViews[rankingMode].mine?.entry?.name}</Text><Text fontSize="12px" color="#f0d9aa" fontWeight="900">{Number(rankingViews[rankingMode].mine?.entry?.score||0).toLocaleString()}階</Text></Flex></>:<><Text mt={1} fontSize="lg" color="gray.300" fontWeight="800">まだTop1000登録なし</Text><Text mt={1} fontSize="9px" color="gray.500">ゲーム終了後に自己ベストを登録すると、ここに順位が表示されます。</Text></>}</Box>}
+          <HStack mb={2} justify="space-between"><Text fontSize="11px" color="#eee9df" fontWeight="900">{rankingMode==='weekly'?'週間 TOP 50':'総合 TOP 50'}</Text><Button size="xs" variant="ghost" color="gray.400" onClick={()=>void loadRankingMode(rankingMode,true)}>再読込</Button></HStack>{rankingViews[rankingMode].rows.length?rankingViews[rankingMode].rows.slice(0,50).map((r,i)=><Flex key={r.id||i} py={1.5} borderBottom="1px solid" borderColor="rgba(200,202,200,.12)" align="center"><Text w="38px" color={i<3?'#e1c071':'#9b4148'} fontWeight="900">#{i+1}</Text><Text flex="1" noOfLines={1} color="#dfdcd4">{r.name}</Text><Text color="#d7d1c3" fontWeight="800">{Number(r.score).toLocaleString()}階</Text></Flex>):<Text color="gray.500">{rankingStatus==='connecting'?'読み込み中…':'まだ登録がありません'}</Text>}
+        </Tabs>
+      </ModalBody><ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.24)" borderRadius="2px" _hover={{bg:'#351419'}} onClick={rank.onClose}>閉じる</Button></ModalFooter></ModalContent></Modal>
       <Modal isOpen={pendingOverflow!==null} onClose={()=>{}} closeOnOverlayClick={false} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="350px" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">持ち物がいっぱいです</ModalHeader><ModalBody><Text fontSize="xs" color="gray.300" mb={3}>新しく「{pendingOverflow?.name}」を入手しました。4つのうち捨てる1つを選んでください。</Text><Stack spacing={2}>{[...s.items,...(pendingOverflow?[pendingOverflow]:[])].map((it,i)=>{const pal=itemPalette(it);return <Button key={`${it.id}-${i}`} h="54px" justifyContent="flex-start" bg={pal.bg} color={pal.text} border="1px solid" borderColor={pal.border} _hover={{filter:'brightness(1.15)'}} onClick={()=>resolveOverflow(i)}><HStack w="100%"><Icon as={it.icon||FaGift} color={pal.icon}/><Box flex="1" textAlign="left"><Text fontSize="11px" fontWeight="900">{it.name}{it.type==='gem'?` ×${it.count||1}`:''}</Text><Text fontSize="9px" color="whiteAlpha.700">{i===3?'新しく入手したアイテム':'現在の持ち物'}</Text></Box><Text fontSize="10px" color="red.200" fontWeight="900">これを捨てる</Text></HStack></Button>})}</Stack></ModalBody></ModalContent></Modal>
       <Modal isOpen={selected!==null} onClose={()=>setSelected(null)} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="330px" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)"><HStack><Center w="36px" h="36px" rounded="lg" bg="gray.700"><Icon as={selectedItem?.icon||FaGift} color={selectedItem?itemPalette(selectedItem).icon:'gray.200'}/></Center><Text>{selectedItem?.name}</Text></HStack></ModalHeader><ModalBody><Text fontSize="sm" color="gray.100">{selectedItem?.desc}</Text></ModalBody><ModalFooter gap={2}>{selectedItem?.type==='consumable'&&<Button colorScheme="green" onClick={()=>useItem(selected!)}>使用する</Button>}{selectedItem?.type==='gem'&&(room.kind==='shop'||room.kind==='legendshop')&&<Button colorScheme="yellow" onClick={()=>sellGem(selected!)}>売却 +{(selectedItem.price*(selectedItem.count||1))}円</Button>}{selectedItem?.type==='gem'&&room.kind!=='shop'&&room.kind!=='legendshop'&&<Text fontSize="xs" color="gray.400" alignSelf="center">宝石はショップ系または伝説の神器商店で売却できます</Text>}<Button colorScheme="red" variant="outline" onClick={()=>discard(selected!)}>捨てる</Button><Button onClick={()=>setSelected(null)}>閉じる</Button></ModalFooter></ModalContent></Modal>
       <Modal isOpen={gameover} onClose={()=>{}} closeOnOverlayClick={false} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="340px" textAlign="center" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" letterSpacing=".10em" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">ゲーム終了</ModalHeader><ModalBody><Text fontSize="xs" color="gray.400">最終到達階数</Text><Text fontSize="4xl" color="#eee9df" fontFamily="heading" fontWeight="black">{s.floor} 階</Text><HStack mt={3}><Input value={nickname} onChange={e=>setNickname(e.target.value)} placeholder="プレイヤー名" textAlign="center"/><Button colorScheme="yellow" onClick={submitScore} isDisabled={scoreSubmitted}>{scoreSubmitted?'登録済み':'登録'}</Button></HStack><HStack justify="space-between" mt={3} color="gray.400"><Text fontSize="xs">最終所持金: <b>{s.money}円</b></Text><Text fontSize="xs">最終運気: <b>{s.luck}</b></Text></HStack></ModalBody><ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.28)" borderRadius="2px" _hover={{bg:'#351419',borderColor:'#8f3940'}} onClick={()=>{setGameover(false);setMenu(true)}}>メインメニューへ</Button></ModalFooter></ModalContent></Modal>

@@ -1,9 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /rankings/{rankingId} {
-      allow read: if true;
-      allow create: if request.auth != null
+    function validRankingCreate(rankingId) {
+      return request.auth != null
+        && rankingId == request.auth.uid
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
@@ -19,10 +19,57 @@ service cloud.firestore {
         && request.resource.data.luck >= -1000000
         && request.resource.data.luck <= 1000000
         && request.resource.data.keys().hasOnly(['uid','name','score','floor','money','luck','createdAt']);
-      allow update: if false;
-      // 無料版ではスコア登録後のTop50整理をクライアント側で行うため、
-      // 匿名認証済みユーザーに削除を許可します。
+    }
+
+    function validRankingUpdate(rankingId) {
+      return request.auth != null
+        && rankingId == request.auth.uid
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 12
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 100000000
+        && request.resource.data.floor == request.resource.data.score
+        && request.resource.data.money is int
+        && request.resource.data.money >= 0
+        && request.resource.data.money <= 1000000000
+        && request.resource.data.luck is int
+        && request.resource.data.luck >= -1000000
+        && request.resource.data.luck <= 1000000
+        && request.resource.data.keys().hasOnly(['uid','name','score','floor','money','luck','createdAt']);
+    }
+
+    // 総合ランキング: 1ユーザー1件の自己ベスト、上位1000件まで保持。
+    match /rankings/{rankingId} {
+      allow read: if true;
+      allow create: if validRankingCreate(rankingId);
+      allow update: if validRankingUpdate(rankingId);
       allow delete: if request.auth != null;
+    }
+
+    // 週間ランキング: 週ごとに1ユーザー1件の自己ベスト、各週上位1000件まで保持。
+    match /rankingsWeekly/{weekKey}/entries/{rankingId} {
+      allow read: if true;
+      allow create: if validRankingCreate(rankingId);
+      allow update: if validRankingUpdate(rankingId);
+      allow delete: if request.auth != null;
+    }
+
+    match /rankingMeta/{metaId} {
+      allow read: if true;
+      allow create, update: if request.auth != null
+        && (metaId == 'top1000' || metaId.matches('weekly_.*'))
+        && request.resource.data.count is int
+        && request.resource.data.count >= 0
+        && request.resource.data.count <= 1000
+        && request.resource.data.lowestScore is int
+        && request.resource.data.lowestScore >= 0
+        && request.resource.data.lowestId is string
+        && request.resource.data.keys().hasOnly(['count','lowestScore','lowestId','updatedAt']);
+      allow delete: if false;
     }
   }
 }
