@@ -1,9 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function validRankingCreate(rankingId) {
+    function validRankingWrite(rankingId) {
       return request.auth != null
         && request.resource.data.uid == request.auth.uid
+        && request.resource.data.playerId is string
+        && request.resource.data.playerId == rankingId
+        && request.resource.data.playerId.size() >= 12
+        && request.resource.data.playerId.size() <= 80
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 12
@@ -17,30 +21,20 @@ service cloud.firestore {
         && request.resource.data.luck is int
         && request.resource.data.luck >= -1000000
         && request.resource.data.luck <= 1000000
-        && request.resource.data.keys().hasOnly(['uid','name','score','floor','money','luck','createdAt']);
+        && request.resource.data.keys().hasOnly(['uid','playerId','name','score','floor','money','luck','createdAt']);
+    }
+
+    function validRankingCreate(rankingId) {
+      return validRankingWrite(rankingId);
     }
 
     function validRankingUpdate(rankingId) {
-      return request.auth != null
-        && resource.data.uid == request.auth.uid
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.name.size() <= 12
-        && request.resource.data.score is int
-        && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 100000000
-        && request.resource.data.floor == request.resource.data.score
-        && request.resource.data.money is int
-        && request.resource.data.money >= 0
-        && request.resource.data.money <= 1000000000
-        && request.resource.data.luck is int
-        && request.resource.data.luck >= -1000000
-        && request.resource.data.luck <= 1000000
-        && request.resource.data.keys().hasOnly(['uid','name','score','floor','money','luck','createdAt']);
+      return validRankingWrite(rankingId)
+        && request.resource.data.score >= resource.data.score;
     }
 
-    // 総合ランキング: 1ユーザー1件の自己ベスト、上位1000件まで保持。
+    // 総合ランキング: ゲーム専用playerIdごとの自己ベスト1件のみ。
+    // Firebase匿名UIDが変わっても、端末に残るplayerIdで同じ記録を更新できる。
     match /rankings/{rankingId} {
       allow read: if true;
       allow create: if validRankingCreate(rankingId);
@@ -48,26 +42,18 @@ service cloud.firestore {
       allow delete: if request.auth != null;
     }
 
-    // 週間ランキング: 週ごとに1ユーザー1件の自己ベスト、各週上位1000件まで保持。
-    match /rankingsWeekly/{weekKey}/entries/{rankingId} {
+    // 月間ランキング: 月ごとにplayerId単位の自己ベスト1件のみ。
+    match /rankingsMonthly/{monthKey}/entries/{rankingId} {
       allow read: if true;
       allow create: if validRankingCreate(rankingId);
       allow update: if validRankingUpdate(rankingId);
       allow delete: if request.auth != null;
     }
 
+    // v78以降はrankingMetaを使用しない。旧ドキュメントは残っていても参照しない。
     match /rankingMeta/{metaId} {
       allow read: if true;
-      allow create, update: if request.auth != null
-        && (metaId == 'top1000' || metaId.matches('weekly_.*'))
-        && request.resource.data.count is int
-        && request.resource.data.count >= 0
-        && request.resource.data.count <= 1000
-        && request.resource.data.lowestScore is int
-        && request.resource.data.lowestScore >= 0
-        && request.resource.data.lowestId is string
-        && request.resource.data.keys().hasOnly(['count','lowestScore','lowestId','updatedAt']);
-      allow delete: if false;
+      allow write: if false;
     }
   }
 }

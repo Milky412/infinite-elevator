@@ -13,7 +13,8 @@ import {
 } from 'react-icons/fa6';
 import type { Item, ItemId, Room, State } from '../lib/types';
 import { firebaseReady } from '../lib/firebase';
-import { getCurrentWeekKey, getCurrentWeekLabel, loadRankingView, submitRankings, type MyRankingResult, type RankingEntry, type RankingScope } from '../lib/leaderboard';
+import { getCurrentMonthKey, getCurrentMonthLabel, loadRankingView, previewRankings, submitRankings, type MyRankingResult, type RankingEntry, type RankingScope, type ScorePreviewBundle } from '../lib/leaderboard';
+import { appendPlayHistory, getLocalHistorySummary, getOrCreatePlayerId, loadPlayHistory } from '../lib/localProfile';
 
 const tierMeta = [
   {name:'Tier 1 Common', bg:'radial-gradient(circle at center, rgba(14,165,233,.15), rgba(15,23,42,.95))', color:'cyan.300'},
@@ -406,9 +407,9 @@ export default function InfiniteElevator(){
   const [roomIntro,setRoomIntro]=useState(false);
   const [overlay,setOverlay]=useState<{show:boolean,tier:number,steps:number,detail:string,locked:boolean}>({show:false,tier:1,steps:0,detail:'',locked:false});
   const [selected,setSelected]=useState<number|null>(null); const [pendingOverflow,setPendingOverflow]=useState<Item|null>(null); const [gameover,setGameover]=useState(false); const [nickname,setNickname]=useState('');
-  const [rankingMode,setRankingMode]=useState<RankingScope>('weekly');
-  const [rankingViews,setRankingViews]=useState<Record<RankingScope,{rows:RankingEntry[];mine:MyRankingResult|null;loaded:boolean;cached:boolean}>>({weekly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
-  const [rankingStatus,setRankingStatus]=useState<'connecting'|'online'|'offline'|'error'>(firebaseReady?'connecting':'offline'); const [scoreSubmitted,setScoreSubmitted]=useState(false); const [forcedShop,setForcedShop]=useState(false); const [soundOn,setSoundOn]=useState(true);
+  const [rankingMode,setRankingMode]=useState<RankingScope>('monthly');
+  const [rankingViews,setRankingViews]=useState<Record<RankingScope,{rows:RankingEntry[];mine:MyRankingResult|null;loaded:boolean;cached:boolean}>>({monthly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
+  const [rankingStatus,setRankingStatus]=useState<'connecting'|'online'|'offline'|'error'>(firebaseReady?'connecting':'offline'); const [scoreSubmitted,setScoreSubmitted]=useState(false); const [scoreSubmitting,setScoreSubmitting]=useState(false); const [scoreSaveMessage,setScoreSaveMessage]=useState(''); const scoreSubmitLockRef=useRef(false); const [playerId,setPlayerId]=useState(''); const [scorePreview,setScorePreview]=useState<ScorePreviewBundle|null>(null); const [scorePreviewLoading,setScorePreviewLoading]=useState(false); const [scorePreviewError,setScorePreviewError]=useState(''); const [localHistorySummary,setLocalHistorySummary]=useState({count:0,best:0}); const runRecordedRef=useRef(false); const [forcedShop,setForcedShop]=useState(false); const [soundOn,setSoundOn]=useState(true);
   const [rocks,setRocks]=useState<{gem:ItemId|null,count:number,open:boolean}[]>([]); const [picks,setPicks]=useState(0);
   const [shop,setShop]=useState<{item:Item,sold:boolean}[]>([]); const [bj,setBj]=useState<{playing:boolean,bet:number,p:number[],d:number[]}>({playing:false,bet:100,p:[],d:[]});
   const [forgeUsed,setForgeUsed]=useState(false);
@@ -447,6 +448,9 @@ export default function InfiniteElevator(){
   useEffect(()=>{
     const h=Number(localStorage.getItem('infinite_elevator_highscore')||'1');
     const n=localStorage.getItem('infinite_elevator_nickname')||'';
+    const id=getOrCreatePlayerId();
+    setPlayerId(id);
+    setLocalHistorySummary(getLocalHistorySummary(loadPlayHistory()));
     setS(x=>({...x,highScore:Math.max(1,h)}));
     setNickname(n);
     if(!firebaseReady){
@@ -460,7 +464,7 @@ export default function InfiniteElevator(){
   const loadRankingMode=async(mode:RankingScope, force=false)=>{
     setRankingMode(mode);
     if(!firebaseReady){
-      const key=mode==='weekly'?`infinite_elevator_local_rankings_weekly_${getCurrentWeekKey()}`:'infinite_elevator_local_rankings';
+      const key=mode==='monthly'?`infinite_elevator_local_rankings_monthly_${getCurrentMonthKey()}`:'infinite_elevator_local_rankings';
       const rows=JSON.parse(localStorage.getItem(key)||'[]').slice(0,50);
       setRankingViews(v=>({...v,[mode]:{rows,mine:null,loaded:true,cached:true}}));
       setRankingStatus('offline');
@@ -469,7 +473,9 @@ export default function InfiniteElevator(){
     if(rankingViews[mode].loaded&&!force){setRankingStatus('online');return;}
     setRankingStatus('connecting');
     try{
-      const view=await loadRankingView(mode,force);
+      const id=playerId||getOrCreatePlayerId();
+      if(!playerId)setPlayerId(id);
+      const view=await loadRankingView(mode,id,force);
       setRankingViews(v=>({...v,[mode]:{rows:view.rows,mine:view.mine,loaded:true,cached:view.cached}}));
       setRankingStatus('online');
     }catch{
@@ -479,8 +485,8 @@ export default function InfiniteElevator(){
 
   const openRanking=()=>{
     rank.onOpen();
-    setRankingMode('weekly');
-    void loadRankingMode('weekly');
+    setRankingMode('monthly');
+    void loadRankingMode('monthly');
   };
 
 
@@ -541,8 +547,38 @@ export default function InfiniteElevator(){
     }
   };
 
-  const start=()=>{playSfx('start',soundOn);setRoomIntro(false);setScoreSubmitted(false);setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setS({...baseState,highScore:s.highScore});setMenu(false);setGameover(false);setDoors(true);setRoom({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});};
-  const end=()=>{playSfx('gameover',soundOn);setAtmDeposit(0);setAtmInput('');setGameover(true); setS(x=>{const h=Math.max(x.highScore,x.floor); localStorage.setItem('infinite_elevator_highscore',String(h)); return {...x,highScore:h};});};
+  const refreshScorePreview=async(score=s.floor)=>{
+    const id=playerId||getOrCreatePlayerId();
+    if(!playerId)setPlayerId(id);
+    setScorePreview(null);
+    setScorePreviewError('');
+    if(!firebaseReady){setScorePreviewLoading(false);return;}
+    setScorePreviewLoading(true);
+    try{
+      const preview=await previewRankings(score,id);
+      setScorePreview(preview);
+      setRankingStatus('online');
+    }catch{
+      setScorePreviewError('暫定順位を取得できませんでした。通信状態を確認して再取得してください。');
+      setRankingStatus('error');
+    }finally{
+      setScorePreviewLoading(false);
+    }
+  };
+
+  const start=()=>{playSfx('start',soundOn);runRecordedRef.current=false;setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);setRoomIntro(false);scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setS({...baseState,highScore:s.highScore});setMenu(false);setGameover(false);setDoors(true);setRoom({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});};
+  const end=()=>{
+    playSfx('gameover',soundOn);
+    scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setAtmDeposit(0);setAtmInput('');
+    if(!runRecordedRef.current){
+      runRecordedRef.current=true;
+      const history=appendPlayHistory({score:s.floor,floor:s.floor,money:s.money,luck:s.luck});
+      setLocalHistorySummary(getLocalHistorySummary(history));
+    }
+    setGameover(true);
+    void refreshScorePreview(s.floor);
+    setS(x=>{const h=Math.max(x.highScore,x.floor); localStorage.setItem('infinite_elevator_highscore',String(h)); return {...x,highScore:h};});
+  };
 
   const triggerRoom=(forcedTier?:number,forcedType?:string)=>{
     let tier=forcedTier||1; if(!forcedTier){const r=Math.random()*100;tier=r<40?1:r<70?2:r<90?3:r<99?4:5;} if(forcedShop){tier=1;forcedType='SHOP_SMALL';setForcedShop(false);}
@@ -610,6 +646,11 @@ export default function InfiniteElevator(){
 
   const playCatalogStage=(stage:StageCatalogEntry)=>{
     playSfx('start',soundOn);
+    runRecordedRef.current=false;
+    setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);
+    scoreSubmitLockRef.current=false;
+    setScoreSubmitting(false);
+    setScoreSaveMessage('');
     setScoreSubmitted(false);
     setForgeUsed(false);
     setGameover(false);
@@ -718,36 +759,68 @@ export default function InfiniteElevator(){
   const discard=(i:number)=>{playSfx('discard',soundOn);setS(x=>({...x,items:x.items.filter((_,j)=>j!==i)}));setSelected(null);};
 
   const submitScore=async()=>{
-    if(scoreSubmitted)return;
-    const name=nickname.trim()||'名無しの登山者';
+    if(scoreSubmitted||scoreSubmitLockRef.current)return;
+    const id=playerId||getOrCreatePlayerId();
+    if(!playerId)setPlayerId(id);
+    const hasEligiblePreview=!firebaseReady||Boolean(scorePreview&&(scorePreview.monthly.eligible||scorePreview.alltime.eligible));
+    if(firebaseReady&&!hasEligiblePreview&&!scorePreviewError){
+      setScoreSaveMessage('今回は月間・総合とも自己ベスト更新対象ではありません。');
+      return;
+    }
+    scoreSubmitLockRef.current=true;
+    setScoreSubmitting(true);
+    setScoreSaveMessage('ランキングへ保存中…');
+    const rawName=nickname.trim()||'名無しの登山者';
+    const name=Array.from(rawName).slice(0,12).join('');
+    if(name!==nickname.trim())setNickname(name);
     localStorage.setItem('infinite_elevator_nickname',name);
-    if(firebaseReady){
-      try{
-        const result=await submitRankings({name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck});
+    try{
+      if(firebaseReady){
+        const result=await submitRankings({name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck},id);
+        setRankingViews({monthly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
+        const failed=[result.monthly.reason==='save_failed'?'月間':'',result.alltime.reason==='save_failed'?'総合':''].filter(Boolean);
+        const updated=[result.monthly.accepted?'月間':'',result.alltime.accepted?'総合':''].filter(Boolean);
+        if(failed.length){
+          setRankingStatus('error');
+          setScoreSaveMessage(`${failed.join('・')}ランキングの保存に失敗しました。保存済みの側は二重登録されません。もう一度お試しください。`);
+          playSfx('fail',soundOn);
+          if(updated.length)log(`${updated.join('・')}ランキングは保存済みです。${failed.join('・')}のみ再試行できます`);
+          return;
+        }
         setScoreSubmitted(true);
-        setRankingViews({weekly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
-        const updated=[result.weekly.accepted?'週間':'',result.alltime.accepted?'総合':''].filter(Boolean);
+        setScoreSaveMessage(updated.length?`${updated.join('・')}ランキングへ保存しました！`:'自己ベスト未更新のため、Firebaseへの書き込みはありませんでした。');
         if(updated.length){
           playSfx('success',soundOn);
           log(`${updated.join('・')}ランキングの自己ベストを更新しました`);
         }else{
           playSfx('click',soundOn);
-          log('週間・総合とも自己ベスト未更新、またはTop1000圏外でした');
+          log('月間・総合とも自己ベスト未更新、またはTop1000圏外でした');
         }
         return;
-      }catch{
-        setRankingStatus('error');
-        playSfx('fail',soundOn);
-        return;
       }
+      const scoreRow={id,name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck};
+      const updateLocal=(key:string)=>{
+        const local=JSON.parse(localStorage.getItem(key)||'[]');
+        const withoutSelf=Array.isArray(local)?local.filter((row:any)=>row?.id!==id):[];
+        const previous=Array.isArray(local)?local.find((row:any)=>row?.id===id):null;
+        const best=previous&&Number(previous.score||0)>=s.floor?previous:scoreRow;
+        const all=[...withoutSelf,best].sort((a:any,b:any)=>Number(b.score||0)-Number(a.score||0)).slice(0,1000);
+        localStorage.setItem(key,JSON.stringify(all));
+      };
+      updateLocal('infinite_elevator_local_rankings');
+      updateLocal(`infinite_elevator_local_rankings_monthly_${getCurrentMonthKey()}`);
+      setRankingViews({monthly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
+      setScoreSubmitted(true);
+      setScoreSaveMessage('ローカルランキングへ保存しました。');
+      playSfx('success',soundOn);
+    }catch{
+      setRankingStatus('error');
+      setScoreSaveMessage('通信エラーで保存できませんでした。接続を確認して、もう一度「登録」を押してください。');
+      playSfx('fail',soundOn);
+    }finally{
+      scoreSubmitLockRef.current=false;
+      setScoreSubmitting(false);
     }
-    const scoreRow={name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck};
-    const updateLocal=(key:string)=>{const local=JSON.parse(localStorage.getItem(key)||'[]');const all=[...local,scoreRow].sort((a:any,b:any)=>b.score-a.score).slice(0,1000);localStorage.setItem(key,JSON.stringify(all));};
-    updateLocal('infinite_elevator_local_rankings');
-    updateLocal(`infinite_elevator_local_rankings_weekly_${getCurrentWeekKey()}`);
-    setRankingViews({weekly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
-    setScoreSubmitted(true);
-    playSfx('success',soundOn);
   };
 
   const card=()=>Math.min(10,ri(1,10)); const hand=(a:number[])=>a.reduce((p,c)=>p+c,0);
@@ -1006,6 +1079,8 @@ export default function InfiniteElevator(){
   const finalMode=s.turnsLeft<=0 && !moving && !gameover;
   const disabled=finalMode ? (moving||gameover||slotSpinning||bj.playing) : (moving||gameover||slotSpinning||bj.playing||s.inHell);
 
+  const scoreHasSaveTarget=Boolean(scorePreview&&(scorePreview.monthly.eligible||scorePreview.alltime.eligible));
+  const scoreRegistrationDisabled=scoreSubmitted||scoreSubmitting||scorePreviewLoading||Boolean(firebaseReady&&scorePreview&&!scoreHasSaveTarget);
   const handleButtonSound=(e:React.MouseEvent)=>{const el=e.target as HTMLElement;if(el.closest('button'))playSfx('click',soundOn);};
 
   return <><style>{`@keyframes cathedralFlicker{0%,100%{opacity:.3}50%{opacity:.62}}@keyframes steelSweep{0%{transform:translateX(-160%)}100%{transform:translateX(160%)}}@keyframes elevatorAura{from{transform:scale(.9);opacity:.45}to{transform:scale(1.08);opacity:1}}@keyframes hypeBlink{0%,45%{opacity:1}46%,100%{opacity:.35}}@keyframes hellPulse{from{transform:scale(.9) rotate(-7deg)}to{transform:scale(1.10) rotate(7deg)}}@keyframes hellShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}@keyframes hellRing{0%{transform:scale(.55) rotate(0deg);opacity:.9}100%{transform:scale(1.55) rotate(220deg);opacity:0}}@keyframes revealPulse{from{transform:scale(.96);filter:brightness(.95)}to{transform:scale(1.06);filter:brightness(1.35)}}@keyframes ultimateWheel{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes floorTravel{0%{transform:translateY(26px) scale(.92);opacity:0}35%{opacity:1}70%{transform:translateY(-10px) scale(1.04);opacity:1}100%{transform:translateY(-34px) scale(1.08);opacity:0}}@keyframes floorLines{from{background-position:0 0}to{background-position:0 120px}}@keyframes warpSpin{0%{transform:rotate(0deg) scale(.85);filter:brightness(1)}50%{transform:rotate(180deg) scale(1.08);filter:brightness(1.8)}100%{transform:rotate(360deg) scale(.85);filter:brightness(1)}}@keyframes ultimateFlash{0%,100%{opacity:.45;filter:brightness(1)}50%{opacity:1;filter:brightness(1.8)}}@keyframes slotJackpot{from{transform:scale(.96);filter:brightness(.9)}to{transform:scale(1.04);filter:brightness(1.35)}}@keyframes reachPulse{from{transform:scale(.98);filter:brightness(1)}to{transform:scale(1.035);filter:brightness(1.45)}}@keyframes rareArrival{0%{opacity:0;transform:scale(.72)}45%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.24)}}@keyframes rareRing{0%{opacity:0;transform:scale(.35)}35%{opacity:.95}100%{opacity:0;transform:scale(1.65)}}@keyframes rareSpark{0%{opacity:0;transform:translateY(18px) scale(.6)}35%{opacity:1}100%{opacity:0;transform:translateY(-44px) scale(1.15)}}`}</style><Center h="100dvh" w="100vw" minH={0} p={0} overflow="hidden" bg="#020304">
@@ -1145,17 +1220,59 @@ export default function InfiniteElevator(){
         </HelpSection>
       </InfoModal>
       <Modal isOpen={rank.isOpen} onClose={rank.onClose} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW={{base:'360px',md:'640px'}} border="1px solid rgba(218,216,208,.28)" borderRadius="8px" boxShadow="0 24px 80px rgba(0,0,0,.72)"><ModalHeader fontFamily="heading" letterSpacing=".08em" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">全国ランキング</ModalHeader><ModalBody maxH="72vh" overflowY="auto">
-        <Tabs index={rankingMode==='weekly'?0:1} onChange={(i)=>{const mode:RankingScope=i===0?'weekly':'alltime';void loadRankingMode(mode);}} variant="soft-rounded" colorScheme="red" size="sm">
-          <TabList mb={3}><Tab flex="1">週間</Tab><Tab flex="1">総合</Tab></TabList>
-          <Box mb={3} px={2} py={1.5} bg="blackAlpha.300" borderRadius="6px"><Text fontSize="9px" color="gray.400">{rankingMode==='weekly'?`週間 ${getCurrentWeekLabel()}・月曜0:00(JST)更新`:'全期間の自己ベスト'}</Text><Text mt={.5} fontSize="9px" color={rankingViews[rankingMode].cached?'cyan.200':'gray.500'}>{rankingViews[rankingMode].cached?'キャッシュから表示中（再読込を節約）':'Top50 + 自分の順位のみ取得 / 51〜1000位は保存のみ'}</Text></Box>
+        <Tabs index={rankingMode==='monthly'?0:1} onChange={(i)=>{const mode:RankingScope=i===0?'monthly':'alltime';void loadRankingMode(mode);}} variant="soft-rounded" colorScheme="red" size="sm">
+          <TabList mb={3}><Tab flex="1">月間</Tab><Tab flex="1">総合</Tab></TabList>
+          <Box mb={3} px={2} py={1.5} bg="blackAlpha.300" borderRadius="6px"><Text fontSize="9px" color="gray.400">{rankingMode==='monthly'?`月間 ${getCurrentMonthLabel()}・毎月1日0:00(JST)更新`:'全期間の自己ベスト'}</Text><Text mt={.5} fontSize="9px" color={rankingViews[rankingMode].cached?'cyan.200':'gray.500'}>{rankingViews[rankingMode].cached?'キャッシュから表示中（再読込を節約）':'Top50 + 自分の順位のみ取得 / 51〜1000位は保存のみ'}</Text></Box>
           <Text mb={2} fontSize="10px" color={rankingStatus==='online'?'#9ab39e':rankingStatus==='connecting'?'#c7b58e':'#b57d7d'}>{rankingStatus==='online'?'● ランキング取得済み':rankingStatus==='connecting'?'ランキング読込中…':rankingStatus==='offline'?'ローカルランキングモード':'Firebase接続エラー'}</Text>
-          {firebaseReady&&<Box mb={4} p={3} bg="rgba(84,28,34,.28)" border="1px solid rgba(180,74,82,.42)" borderRadius="8px"><Text fontSize="9px" color="gray.400" letterSpacing=".10em">{rankingMode==='weekly'?'今週のあなた':'総合のあなた'}</Text>{rankingStatus==='connecting'&&!rankingViews[rankingMode].loaded?<Text mt={1} color="gray.400">集計中…</Text>:rankingViews[rankingMode].mine?.entry&&rankingViews[rankingMode].mine?.rank?<><HStack mt={1} align="baseline"><Text fontFamily="heading" fontSize="3xl" color="#f0d9aa" fontWeight="900">{rankingViews[rankingMode].mine?.rank}位</Text><Text fontSize="10px" color="gray.400">/ Top 1000</Text></HStack><Flex mt={1} justify="space-between"><Text fontSize="11px" color="#eee9df" noOfLines={1}>{rankingViews[rankingMode].mine?.entry?.name}</Text><Text fontSize="12px" color="#f0d9aa" fontWeight="900">{Number(rankingViews[rankingMode].mine?.entry?.score||0).toLocaleString()}階</Text></Flex></>:<><Text mt={1} fontSize="lg" color="gray.300" fontWeight="800">まだTop1000登録なし</Text><Text mt={1} fontSize="9px" color="gray.500">ゲーム終了後に自己ベストを登録すると、ここに順位が表示されます。</Text></>}</Box>}
-          <HStack mb={2} justify="space-between"><Text fontSize="11px" color="#eee9df" fontWeight="900">{rankingMode==='weekly'?'週間 TOP 50':'総合 TOP 50'}</Text><Button size="xs" variant="ghost" color="gray.400" onClick={()=>void loadRankingMode(rankingMode,true)}>再読込</Button></HStack>{rankingViews[rankingMode].rows.length?rankingViews[rankingMode].rows.slice(0,50).map((r,i)=><Flex key={r.id||i} py={1.5} borderBottom="1px solid" borderColor="rgba(200,202,200,.12)" align="center"><Text w="38px" color={i<3?'#e1c071':'#9b4148'} fontWeight="900">#{i+1}</Text><Text flex="1" noOfLines={1} color="#dfdcd4">{r.name}</Text><Text color="#d7d1c3" fontWeight="800">{Number(r.score).toLocaleString()}階</Text></Flex>):<Text color="gray.500">{rankingStatus==='connecting'?'読み込み中…':'まだ登録がありません'}</Text>}
+          {firebaseReady&&<Box mb={4} p={3} bg="rgba(84,28,34,.28)" border="1px solid rgba(180,74,82,.42)" borderRadius="8px"><Text fontSize="9px" color="gray.400" letterSpacing=".10em">{rankingMode==='monthly'?'今月のあなた':'総合のあなた'}</Text>{rankingStatus==='connecting'&&!rankingViews[rankingMode].loaded?<Text mt={1} color="gray.400">集計中…</Text>:rankingViews[rankingMode].mine?.entry&&rankingViews[rankingMode].mine?.rank?<><HStack mt={1} align="baseline"><Text fontFamily="heading" fontSize="3xl" color="#f0d9aa" fontWeight="900">{rankingViews[rankingMode].mine?.rank}位</Text><Text fontSize="10px" color="gray.400">/ Top 1000</Text></HStack><Flex mt={1} justify="space-between"><Text fontSize="11px" color="#eee9df" noOfLines={1}>{rankingViews[rankingMode].mine?.entry?.name}</Text><Text fontSize="12px" color="#f0d9aa" fontWeight="900">{Number(rankingViews[rankingMode].mine?.entry?.score||0).toLocaleString()}階</Text></Flex></>:<><Text mt={1} fontSize="lg" color="gray.300" fontWeight="800">まだTop1000登録なし</Text><Text mt={1} fontSize="9px" color="gray.500">ゲーム終了後に自己ベストを登録すると、ここに順位が表示されます。</Text></>}</Box>}
+          <HStack mb={2} justify="space-between"><Text fontSize="11px" color="#eee9df" fontWeight="900">{rankingMode==='monthly'?'月間 TOP 50':'総合 TOP 50'}</Text><Button size="xs" variant="ghost" color="gray.400" onClick={()=>void loadRankingMode(rankingMode,true)}>再読込</Button></HStack>{rankingViews[rankingMode].rows.length?rankingViews[rankingMode].rows.slice(0,50).map((r,i)=><Flex key={r.id||i} py={1.5} borderBottom="1px solid" borderColor="rgba(200,202,200,.12)" align="center"><Text w="38px" color={i<3?'#e1c071':'#9b4148'} fontWeight="900">#{i+1}</Text><Text flex="1" noOfLines={1} color="#dfdcd4">{r.name}</Text><Text color="#d7d1c3" fontWeight="800">{Number(r.score).toLocaleString()}階</Text></Flex>):<Text color="gray.500">{rankingStatus==='connecting'?'読み込み中…':'まだ登録がありません'}</Text>}
         </Tabs>
       </ModalBody><ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.24)" borderRadius="2px" _hover={{bg:'#351419'}} onClick={rank.onClose}>閉じる</Button></ModalFooter></ModalContent></Modal>
       <Modal isOpen={pendingOverflow!==null} onClose={()=>{}} closeOnOverlayClick={false} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="350px" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">持ち物がいっぱいです</ModalHeader><ModalBody><Text fontSize="xs" color="gray.300" mb={3}>新しく「{pendingOverflow?.name}」を入手しました。4つのうち捨てる1つを選んでください。</Text><Stack spacing={2}>{[...s.items,...(pendingOverflow?[pendingOverflow]:[])].map((it,i)=>{const pal=itemPalette(it);return <Button key={`${it.id}-${i}`} h="54px" justifyContent="flex-start" bg={pal.bg} color={pal.text} border="1px solid" borderColor={pal.border} _hover={{filter:'brightness(1.15)'}} onClick={()=>resolveOverflow(i)}><HStack w="100%"><Icon as={it.icon||FaGift} color={pal.icon}/><Box flex="1" textAlign="left"><Text fontSize="11px" fontWeight="900">{it.name}{it.type==='gem'?` ×${it.count||1}`:''}</Text><Text fontSize="9px" color="whiteAlpha.700">{i===3?'新しく入手したアイテム':'現在の持ち物'}</Text></Box><Text fontSize="10px" color="red.200" fontWeight="900">これを捨てる</Text></HStack></Button>})}</Stack></ModalBody></ModalContent></Modal>
       <Modal isOpen={selected!==null} onClose={()=>setSelected(null)} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="330px" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)"><HStack><Center w="36px" h="36px" rounded="lg" bg="gray.700"><Icon as={selectedItem?.icon||FaGift} color={selectedItem?itemPalette(selectedItem).icon:'gray.200'}/></Center><Text>{selectedItem?.name}</Text></HStack></ModalHeader><ModalBody><Text fontSize="sm" color="gray.100">{selectedItem?.desc}</Text></ModalBody><ModalFooter gap={2}>{selectedItem?.type==='consumable'&&<Button colorScheme="green" onClick={()=>useItem(selected!)}>使用する</Button>}{selectedItem?.type==='gem'&&(room.kind==='shop'||room.kind==='legendshop')&&<Button colorScheme="yellow" onClick={()=>sellGem(selected!)}>売却 +{(selectedItem.price*(selectedItem.count||1))}円</Button>}{selectedItem?.type==='gem'&&room.kind!=='shop'&&room.kind!=='legendshop'&&<Text fontSize="xs" color="gray.400" alignSelf="center">宝石はショップ系または伝説の神器商店で売却できます</Text>}<Button colorScheme="red" variant="outline" onClick={()=>discard(selected!)}>捨てる</Button><Button onClick={()=>setSelected(null)}>閉じる</Button></ModalFooter></ModalContent></Modal>
-      <Modal isOpen={gameover} onClose={()=>{}} closeOnOverlayClick={false} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="340px" textAlign="center" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" letterSpacing=".10em" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">ゲーム終了</ModalHeader><ModalBody><Text fontSize="xs" color="gray.400">最終到達階数</Text><Text fontSize="4xl" color="#eee9df" fontFamily="heading" fontWeight="black">{s.floor} 階</Text><HStack mt={3}><Input value={nickname} onChange={e=>setNickname(e.target.value)} placeholder="プレイヤー名" textAlign="center"/><Button colorScheme="yellow" onClick={submitScore} isDisabled={scoreSubmitted}>{scoreSubmitted?'登録済み':'登録'}</Button></HStack><HStack justify="space-between" mt={3} color="gray.400"><Text fontSize="xs">最終所持金: <b>{s.money}円</b></Text><Text fontSize="xs">最終運気: <b>{s.luck}</b></Text></HStack></ModalBody><ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.28)" borderRadius="2px" _hover={{bg:'#351419',borderColor:'#8f3940'}} onClick={()=>{setGameover(false);setMenu(true)}}>メインメニューへ</Button></ModalFooter></ModalContent></Modal>
+      <Modal isOpen={gameover} onClose={()=>{}} closeOnOverlayClick={false} isCentered>
+        <ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/>
+        <ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW={{base:'360px',md:'430px'}} maxH="92vh" textAlign="center" border="1px solid rgba(218,216,208,.28)" borderRadius="2px">
+          <ModalHeader fontFamily="heading" letterSpacing=".10em" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">ゲーム終了</ModalHeader>
+          <ModalBody overflowY="auto">
+            <Text fontSize="xs" color="gray.400">最終到達階数</Text>
+            <Text fontSize="4xl" color="#eee9df" fontFamily="heading" fontWeight="black">{s.floor.toLocaleString()} 階</Text>
+
+            <Box mt={3} p={3} textAlign="left" bg="rgba(73,28,34,.20)" border="1px solid rgba(180,74,82,.34)" borderRadius="8px">
+              <HStack justify="space-between" mb={2}>
+                <Text fontSize="10px" color="#e8dcc6" fontWeight="900">今回スコアの暫定順位</Text>
+                <Text fontSize="9px" color="gray.500">まだFirebaseには未保存</Text>
+              </HStack>
+              {scorePreviewLoading&&<VStack py={3} spacing={2}><Progress w="100%" size="xs" isIndeterminate colorScheme="yellow"/><Text fontSize="10px" color="gray.400">月間・総合順位を確認中…</Text></VStack>}
+              {!scorePreviewLoading&&scorePreviewError&&<Stack spacing={2}><Text fontSize="10px" color="red.200">{scorePreviewError}</Text><Button size="xs" variant="outline" colorScheme="yellow" onClick={()=>void refreshScorePreview(s.floor)}>順位を再確認</Button><Text fontSize="9px" color="gray.500">確認に失敗しても、必要なら下の登録ボタンから保存を試せます。</Text></Stack>}
+              {!scorePreviewLoading&&scorePreview&&<SimpleGrid columns={2} spacing={2}>
+                {(['monthly','alltime'] as const).map(scope=>{const p=scorePreview[scope];return <Box key={scope} p={2} bg="blackAlpha.400" borderRadius="6px" border="1px solid rgba(210,212,210,.12)">
+                  <Text fontSize="9px" color="gray.400">{scope==='monthly'?`${scorePreview.monthLabel} 月間`:'総合'}</Text>
+                  <Text mt={1} fontFamily="heading" fontSize="xl" color={p.rank<=50?'yellow.200':p.rank<=1000?'#eee9df':'gray.400'} fontWeight="900">{p.rank<=1000?`暫定 ${p.rank}位`:'Top1000圏外'}</Text>
+                  {p.currentBestScore!==null&&<Text mt={1} fontSize="9px" color="gray.500">現在ベスト {p.currentBestScore.toLocaleString()}階</Text>}
+                  <Text mt={1} fontSize="9px" color={p.eligible?'green.200':'gray.500'}>{p.eligible?(p.currentBestScore===null?'登録対象':'自己ベスト更新対象'):(p.wouldImprove?'Top1000保存対象外':'自己ベスト未更新')}</Text>
+                </Box>})}
+              </SimpleGrid>}
+              {!firebaseReady&&<Text fontSize="10px" color="gray.400">Firebase未設定のため暫定順位は取得せず、端末内ランキングのみ利用します。</Text>}
+            </Box>
+
+            <Flex mt={3} px={2} py={2} justify="space-between" align="center" bg="blackAlpha.300" borderRadius="6px">
+              <Box textAlign="left"><Text fontSize="9px" color="gray.500">この端末のプレイ履歴</Text><Text fontSize="11px" color="#eee9df" fontWeight="800">{localHistorySummary.count}プレイ保存</Text></Box>
+              <Box textAlign="right"><Text fontSize="9px" color="gray.500">端末内ベスト</Text><Text fontSize="12px" color="#f0d9aa" fontWeight="900">{localHistorySummary.best.toLocaleString()}階</Text></Box>
+            </Flex>
+            <Text mt={1} fontSize="8px" color="gray.600">プレイ履歴はこの端末内だけに最大100件保存され、Firebaseの容量・write数は消費しません。</Text>
+
+            <HStack mt={3} align="stretch">
+              <Input value={nickname} onChange={e=>setNickname(Array.from(e.target.value).slice(0,12).join(''))} maxLength={12} isDisabled={scoreSubmitting||scoreSubmitted} placeholder="プレイヤー名（12文字まで）" textAlign="center"/>
+              <Button minW="108px" colorScheme="yellow" onClick={submitScore} isDisabled={scoreRegistrationDisabled} isLoading={scoreSubmitting} loadingText="保存中">{scoreSubmitted?'登録済み':scorePreviewLoading?'順位確認中':firebaseReady&&scorePreview&&!scoreHasSaveTarget?'保存不要':'ランキング登録'}</Button>
+            </HStack>
+            {scorePreview&&scoreHasSaveTarget&&<Text mt={1.5} fontSize="9px" color="gray.500">登録を押した場合も、Firebaseには月間・総合それぞれの最高記録1件だけを保持します。</Text>}
+            {scoreSaveMessage&&<Text mt={2} fontSize="10px" color={scoreSubmitted?'green.200':rankingStatus==='error'?'red.200':'yellow.100'}>{scoreSaveMessage}</Text>}
+            <HStack justify="space-between" mt={3} color="gray.400"><Text fontSize="xs">最終所持金: <b>{s.money.toLocaleString()}円</b></Text><Text fontSize="xs">最終運気: <b>{s.luck}</b></Text></HStack>
+          </ModalBody>
+          <ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.28)" borderRadius="2px" _hover={{bg:'#351419',borderColor:'#8f3940'}} isDisabled={scoreSubmitting} onClick={()=>{setGameover(false);setMenu(true)}}>{scoreSubmitting?'保存完了までお待ちください':'登録せずメインメニューへ'}</Button></ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   </Center></>;
 }

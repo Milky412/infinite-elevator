@@ -21,11 +21,12 @@ export const RANKING_DISPLAY_LIMIT = 50;
 export const RANKING_STORAGE_LIMIT = 1000;
 export const RANKING_CACHE_MS = 5 * 60 * 1000;
 
-export type RankingScope = 'weekly' | 'alltime';
+export type RankingScope = 'monthly' | 'alltime';
 
 export type RankingEntry = {
   id?: string;
   uid?: string;
+  playerId?: string;
   name: string;
   score: number;
   floor: number;
@@ -34,23 +35,17 @@ export type RankingEntry = {
   createdAt?: unknown;
 };
 
-type RankingMeta = {
-  count: number;
-  lowestScore: number;
-  lowestId: string;
-  updatedAt?: unknown;
-};
-
 export type RankingSubmitResult = {
   accepted: boolean;
   improved?: boolean;
-  reason?: 'below_cutoff' | 'not_improved';
+  reason?: 'below_cutoff' | 'not_improved' | 'save_failed';
+  errorMessage?: string;
 };
 
 export type RankingSubmitBundle = {
-  weekly: RankingSubmitResult;
+  monthly: RankingSubmitResult;
   alltime: RankingSubmitResult;
-  weekKey: string;
+  monthKey: string;
 };
 
 export type MyRankingResult = {
@@ -63,48 +58,42 @@ export type RankingView = {
   rows: RankingEntry[];
   mine: MyRankingResult;
   scope: RankingScope;
-  weekKey?: string;
-  weekLabel?: string;
+  monthKey?: string;
+  monthLabel?: string;
   cached: boolean;
+};
+
+export type ScoreScopePreview = {
+  rank: number;
+  inTop1000: boolean;
+  currentBestScore: number | null;
+  wouldImprove: boolean;
+  eligible: boolean;
+  totalStored: number;
+  cutoffScore: number | null;
+};
+
+export type ScorePreviewBundle = {
+  monthly: ScoreScopePreview;
+  alltime: ScoreScopePreview;
+  monthKey: string;
+  monthLabel: string;
 };
 
 type CachedView = Omit<RankingView, 'cached'> & { expiresAt: number };
 const viewCache = new Map<string, CachedView>();
 
-function nicknameKey(name: string) {
-  // 同一端末でもニックネームが違えば別プレイヤーとして扱う。
-  // 同じニックネームは同じdocument IDになるため自己ベスト更新になる。
-  let h = 2166136261;
-  const normalized = name.trim().normalize('NFKC').toLowerCase();
-  for (let i = 0; i < normalized.length; i += 1) {
-    h ^= normalized.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(36);
-}
-
-function getPlayerRankingId(uid: string, name: string) {
-  return `${uid}__${nicknameKey(name)}`;
-}
-
-export function getCurrentWeekKey(now = new Date()) {
-  // 週間ランキングは日本時間の月曜00:00で切り替える。
+export function getCurrentMonthKey(now = new Date()) {
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  const day = jst.getUTCDay();
-  const daysSinceMonday = (day + 6) % 7;
-  const monday = new Date(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate() - daysSinceMonday));
-  const y = monday.getUTCFullYear();
-  const m = String(monday.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(monday.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const y = jst.getUTCFullYear();
+  const m = String(jst.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
 }
 
-export function getCurrentWeekLabel(now = new Date()) {
-  const key = getCurrentWeekKey(now);
-  const [y,m,d] = key.split('-').map(Number);
-  const start = new Date(Date.UTC(y, m - 1, d));
-  const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
-  return `${start.getUTCMonth()+1}/${start.getUTCDate()}〜${end.getUTCMonth()+1}/${end.getUTCDate()}`;
+export function getCurrentMonthLabel(now = new Date()) {
+  const key = getCurrentMonthKey(now);
+  const [y, m] = key.split('-').map(Number);
+  return `${y}年${m}月`;
 }
 
 export async function ensureAnonymousUser() {
@@ -115,17 +104,13 @@ export async function ensureAnonymousUser() {
 }
 
 function getScopeKey(scope: RankingScope) {
-  return scope === 'weekly' ? `weekly:${getCurrentWeekKey()}` : 'alltime';
-}
-
-function getMetaId(scope: RankingScope) {
-  return scope === 'weekly' ? `weekly_${getCurrentWeekKey()}` : 'top1000';
+  return scope === 'monthly' ? `monthly:${getCurrentMonthKey()}` : 'alltime';
 }
 
 function getRankingCollection(scope: RankingScope): CollectionReference<DocumentData> {
   if (!db) throw new Error('Firestore is not configured');
-  if (scope === 'weekly') {
-    return collection(db, 'rankingsWeekly', getCurrentWeekKey(), 'entries');
+  if (scope === 'monthly') {
+    return collection(db, 'rankingsMonthly', getCurrentMonthKey(), 'entries');
   }
   return collection(db, 'rankings');
 }
@@ -134,146 +119,117 @@ function invalidateRankingCache() {
   viewCache.clear();
 }
 
-async function initializeRankingMeta(scope: RankingScope): Promise<RankingMeta> {
-  if (!db) throw new Error('Firestore is not configured');
-  const ref = getRankingCollection(scope);
-  const top1000Query = query(ref, orderBy('score', 'desc'), limit(RANKING_STORAGE_LIMIT));
-  const snapshot = await getDocs(top1000Query);
-  const count = snapshot.size;
-  const lowest = snapshot.docs[count - 1];
-  const meta: RankingMeta = {
-    count,
-    lowestScore: lowest ? Number(lowest.data().score || 0) : 0,
-    lowestId: lowest?.id || '',
-  };
-  await setDoc(doc(db, 'rankingMeta', getMetaId(scope)), {...meta, updatedAt: serverTimestamp()});
-  return meta;
-}
-
 async function getBottomTwo(scope: RankingScope) {
   const ref = getRankingCollection(scope);
   return getDocs(query(ref, orderBy('score', 'asc'), limit(2)));
 }
 
-async function submitScopeRanking(scope: RankingScope, entry: Omit<RankingEntry, 'uid' | 'createdAt'>): Promise<RankingSubmitResult> {
+async function submitScopeRanking(
+  scope: RankingScope,
+  entry: Omit<RankingEntry, 'uid' | 'playerId' | 'createdAt'>,
+  uid: string,
+  playerId: string,
+): Promise<RankingSubmitResult> {
   if (!firebaseReady || !auth || !db) throw new Error('Firebase is not configured');
-  const user = await ensureAnonymousUser();
-  if (!user) throw new Error('Anonymous sign-in failed');
+  if (!playerId) throw new Error('playerId is missing');
 
   const rankingCollection = getRankingCollection(scope);
-  const nicknameRef = doc(rankingCollection, getPlayerRankingId(user.uid, entry.name));
-  // v71以前の「UIDそのものをdocument IDにする」記録も同名ならそのまま更新する。
-  const legacyRef = doc(rankingCollection, user.uid);
-  const [nicknameSnap, legacySnap] = await Promise.all([getDoc(nicknameRef), getDoc(legacyRef)]);
-  const useLegacy = !nicknameSnap.exists() && legacySnap.exists() && String(legacySnap.data().name || '').trim() === entry.name.trim();
-  const rankingRef = useLegacy ? legacyRef : nicknameRef;
-  const existingSnap = useLegacy ? legacySnap : nicknameSnap;
+  const rankingRef = doc(rankingCollection, playerId);
+  const existingSnap = await getDoc(rankingRef);
   const existing = existingSnap.exists() ? (existingSnap.data() as RankingEntry) : null;
 
   if (existing && entry.score <= Number(existing.score || 0)) {
     return {accepted:false, improved:false, reason:'not_improved'};
   }
 
-  const metaRef = doc(db, 'rankingMeta', getMetaId(scope));
-  const metaSnap = await getDoc(metaRef);
-  let meta = metaSnap.exists() ? (metaSnap.data() as RankingMeta) : await initializeRankingMeta(scope);
-  const isNewUser = !existing;
+  const newData = {
+    ...entry,
+    uid,
+    playerId,
+    createdAt:serverTimestamp(),
+  };
 
-  if (isNewUser && meta.count >= RANKING_STORAGE_LIMIT && entry.score <= meta.lowestScore) {
-    return {accepted:false, improved:false, reason:'below_cutoff'};
-  }
-
-  const newData = {...entry, uid:user.uid, createdAt:serverTimestamp()};
-
-  if (meta.count < RANKING_STORAGE_LIMIT) {
-    if (!isNewUser && meta.lowestId === rankingRef.id && meta.count > 1) {
-      const bottom = await getBottomTwo(scope);
-      const secondLowest = bottom.docs.find(d => d.id !== rankingRef.id);
-      const secondScore = secondLowest ? Number(secondLowest.data().score || 0) : entry.score;
-      const userStaysLowest = entry.score <= secondScore;
-      const batch = writeBatch(db);
-      batch.set(rankingRef, newData);
-      batch.set(metaRef, {
-        count:meta.count,
-        lowestScore:userStaysLowest ? entry.score : secondScore,
-        lowestId:userStaysLowest ? rankingRef.id : (secondLowest?.id || rankingRef.id),
-        updatedAt:serverTimestamp(),
-      });
-      await batch.commit();
-      return {accepted:true, improved:true};
-    }
-
-    const newCount = meta.count + (isNewUser ? 1 : 0);
-    const becomesLowest = isNewUser && (meta.count === 0 || entry.score < meta.lowestScore);
-    const onlyExistingEntry = !isNewUser && meta.count === 1 && meta.lowestId === rankingRef.id;
-    const batch = writeBatch(db);
-    batch.set(rankingRef, newData);
-    batch.set(metaRef, {
-      count:newCount,
-      lowestScore:(becomesLowest || onlyExistingEntry) ? entry.score : meta.lowestScore,
-      lowestId:(becomesLowest || onlyExistingEntry) ? rankingRef.id : meta.lowestId,
-      updatedAt:serverTimestamp(),
-    });
-    await batch.commit();
+  // 同じ端末プレイヤーの自己ベスト更新は、Top1000件数を再判定せず固定documentを更新する。
+  if (existing) {
+    await setDoc(rankingRef, newData);
     return {accepted:true, improved:true};
   }
 
-  if (!isNewUser) {
-    if (meta.lowestId !== rankingRef.id) {
-      await setDoc(rankingRef, newData);
-      return {accepted:true, improved:true};
-    }
-    const bottom = await getBottomTwo(scope);
-    const secondLowest = bottom.docs.find(d => d.id !== rankingRef.id);
-    const secondScore = secondLowest ? Number(secondLowest.data().score || 0) : entry.score;
-    const userStaysLowest = entry.score <= secondScore;
-    const batch = writeBatch(db);
-    batch.set(rankingRef, newData);
-    batch.set(metaRef, {
-      count:RANKING_STORAGE_LIMIT,
-      lowestScore:userStaysLowest ? entry.score : secondScore,
-      lowestId:userStaysLowest ? rankingRef.id : (secondLowest?.id || rankingRef.id),
-      updatedAt:serverTimestamp(),
-    });
-    await batch.commit();
+  // 新規プレイヤーだけ現在件数を集計する。rankingMetaには依存しない。
+  const countSnapshot = await getCountFromServer(rankingCollection);
+  const count = countSnapshot.data().count;
+  if (count < RANKING_STORAGE_LIMIT) {
+    await setDoc(rankingRef, newData);
     return {accepted:true, improved:true};
   }
 
+  // 1000件以上なら実データの最下位と比較し、上回った時だけ入れ替える。
   const bottom = await getBottomTwo(scope);
   const lowest = bottom.docs[0];
-  const secondLowest = bottom.docs[1];
   if (!lowest) {
-    meta = await initializeRankingMeta(scope);
-    return submitScopeRanking(scope, entry);
+    await setDoc(rankingRef, newData);
+    return {accepted:true, improved:true};
   }
   const lowestScore = Number(lowest.data().score || 0);
   if (entry.score <= lowestScore) {
-    await setDoc(metaRef, {count:RANKING_STORAGE_LIMIT, lowestScore, lowestId:lowest.id, updatedAt:serverTimestamp()}, {merge:true});
     return {accepted:false, improved:false, reason:'below_cutoff'};
   }
 
-  const secondScore = secondLowest ? Number(secondLowest.data().score || 0) : entry.score;
-  const insertedBecomesLowest = !secondLowest || entry.score < secondScore;
   const batch = writeBatch(db);
   batch.set(rankingRef, newData);
   batch.delete(lowest.ref);
-  batch.set(metaRef, {
-    count:RANKING_STORAGE_LIMIT,
-    lowestScore:insertedBecomesLowest ? entry.score : secondScore,
-    lowestId:insertedBecomesLowest ? rankingRef.id : (secondLowest?.id || rankingRef.id),
-    updatedAt:serverTimestamp(),
-  });
   await batch.commit();
   return {accepted:true, improved:true};
 }
 
-export async function submitRankings(entry: Omit<RankingEntry, 'uid' | 'createdAt'>): Promise<RankingSubmitBundle> {
-  const [weekly, alltime] = await Promise.all([
-    submitScopeRanking('weekly', entry),
-    submitScopeRanking('alltime', entry),
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error || '保存に失敗しました');
+}
+
+function isRetryableError(error: unknown) {
+  const code = String((error as {code?: unknown})?.code || '');
+  return ['aborted','cancelled','deadline-exceeded','internal','network-request-failed','resource-exhausted','unavailable','unknown'].some(x => code.includes(x));
+}
+
+async function submitScopeWithRetry(
+  scope: RankingScope,
+  entry: Omit<RankingEntry, 'uid' | 'playerId' | 'createdAt'>,
+  uid: string,
+  playerId: string,
+) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await submitScopeRanking(scope, entry, uid, playerId);
+    } catch (error) {
+      lastError = error;
+      if (attempt > 0 || !isRetryableError(error)) break;
+      await new Promise(resolve => setTimeout(resolve, 450));
+    }
+  }
+  throw lastError;
+}
+
+export async function submitRankings(
+  entry: Omit<RankingEntry, 'uid' | 'playerId' | 'createdAt'>,
+  playerId: string,
+): Promise<RankingSubmitBundle> {
+  const user = await ensureAnonymousUser();
+  if (!user) throw new Error('Anonymous sign-in failed');
+
+  const settled = await Promise.allSettled([
+    submitScopeWithRetry('monthly', entry, user.uid, playerId),
+    submitScopeWithRetry('alltime', entry, user.uid, playerId),
   ]);
+  const toResult = (item: PromiseSettledResult<RankingSubmitResult>): RankingSubmitResult =>
+    item.status === 'fulfilled'
+      ? item.value
+      : {accepted:false, improved:false, reason:'save_failed', errorMessage:errorMessage(item.reason)};
+  const monthly = toResult(settled[0]);
+  const alltime = toResult(settled[1]);
   invalidateRankingCache();
-  return {weekly, alltime, weekKey:getCurrentWeekKey()};
+  return {monthly, alltime, monthKey:getCurrentMonthKey()};
 }
 
 export async function loadTopRankings(scope: RankingScope = 'alltime'): Promise<RankingEntry[]> {
@@ -283,33 +239,81 @@ export async function loadTopRankings(scope: RankingScope = 'alltime'): Promise<
   return snapshot.docs.map((rankingDoc) => ({id:rankingDoc.id, ...(rankingDoc.data() as RankingEntry)}));
 }
 
-export async function loadMyRanking(scope: RankingScope = 'alltime'): Promise<MyRankingResult> {
-  if (!firebaseReady || !auth || !db) return {entry:null, rank:null, inTop1000:false};
-  const user = await ensureAnonymousUser();
-  if (!user) return {entry:null, rank:null, inTop1000:false};
+export async function loadMyRanking(scope: RankingScope, playerId: string): Promise<MyRankingResult> {
+  if (!firebaseReady || !db || !playerId) return {entry:null, rank:null, inTop1000:false};
   const ref = getRankingCollection(scope);
-  // 同じ端末から複数ニックネームを登録できるため、UIDに紐づく記録の中から最高記録を自分の順位として扱う。
-  const mineSnapshot = await getDocs(query(ref, where('uid', '==', user.uid), limit(100)));
-  if (mineSnapshot.empty) return {entry:null, rank:null, inTop1000:false};
-  const mineEntries = mineSnapshot.docs.map(d => ({id:d.id, ...(d.data() as RankingEntry)}));
-  const entry = mineEntries.reduce((best, cur) => Number(cur.score || 0) > Number(best.score || 0) ? cur : best);
-  const higherCount = await getCountFromServer(query(ref, where('score', '>', entry.score)));
+  const mineSnapshot = await getDoc(doc(ref, playerId));
+  if (!mineSnapshot.exists()) return {entry:null, rank:null, inTop1000:false};
+  const entry = {id:mineSnapshot.id, ...(mineSnapshot.data() as RankingEntry)};
+  const higherCount = await getCountFromServer(query(ref, where('score', '>', Number(entry.score || 0))));
   const rank = higherCount.data().count + 1;
   return {entry, rank, inTop1000:rank <= RANKING_STORAGE_LIMIT};
 }
 
-export async function loadRankingView(scope: RankingScope, force = false): Promise<RankingView> {
-  const key = getScopeKey(scope);
+async function previewScopeRanking(scope: RankingScope, score: number, playerId: string): Promise<ScoreScopePreview> {
+  if (!firebaseReady || !db) throw new Error('Firestore is not configured');
+  const ref = getRankingCollection(scope);
+  const ownRef = doc(ref, playerId);
+  const [ownSnapshot, higherSnapshot, totalSnapshot] = await Promise.all([
+    getDoc(ownRef),
+    getCountFromServer(query(ref, where('score', '>', score))),
+    getCountFromServer(ref),
+  ]);
+  const currentBestScore = ownSnapshot.exists() ? Number(ownSnapshot.data().score || 0) : null;
+  const wouldImprove = currentBestScore === null || score > currentBestScore;
+  const totalStored = totalSnapshot.data().count;
+  const rank = higherSnapshot.data().count + 1;
+  let cutoffScore: number | null = null;
+  let eligible = false;
+
+  if (ownSnapshot.exists()) {
+    eligible = wouldImprove;
+  } else if (totalStored < RANKING_STORAGE_LIMIT) {
+    eligible = true;
+  } else {
+    const lowestSnapshot = await getDocs(query(ref, orderBy('score', 'asc'), limit(1)));
+    const lowest = lowestSnapshot.docs[0];
+    cutoffScore = lowest ? Number(lowest.data().score || 0) : null;
+    eligible = cutoffScore === null || score > cutoffScore;
+  }
+
+  return {
+    rank,
+    inTop1000: rank <= RANKING_STORAGE_LIMIT && (ownSnapshot.exists() || eligible),
+    currentBestScore,
+    wouldImprove,
+    eligible,
+    totalStored,
+    cutoffScore,
+  };
+}
+
+export async function previewRankings(score: number, playerId: string): Promise<ScorePreviewBundle> {
+  if (!playerId) throw new Error('playerId is missing');
+  const [monthly, alltime] = await Promise.all([
+    previewScopeRanking('monthly', score, playerId),
+    previewScopeRanking('alltime', score, playerId),
+  ]);
+  return {
+    monthly,
+    alltime,
+    monthKey:getCurrentMonthKey(),
+    monthLabel:getCurrentMonthLabel(),
+  };
+}
+
+export async function loadRankingView(scope: RankingScope, playerId: string, force = false): Promise<RankingView> {
+  const key = `${getScopeKey(scope)}:${playerId}`;
   const cached = viewCache.get(key);
   if (!force && cached && cached.expiresAt > Date.now()) {
     return {...cached, cached:true};
   }
-  const [rows, mine] = await Promise.all([loadTopRankings(scope), loadMyRanking(scope)]);
+  const [rows, mine] = await Promise.all([loadTopRankings(scope), loadMyRanking(scope, playerId)]);
   const base = {
     rows,
     mine,
     scope,
-    ...(scope === 'weekly' ? {weekKey:getCurrentWeekKey(), weekLabel:getCurrentWeekLabel()} : {}),
+    ...(scope === 'monthly' ? {monthKey:getCurrentMonthKey(), monthLabel:getCurrentMonthLabel()} : {}),
   };
   viewCache.set(key, {...base, expiresAt:Date.now()+RANKING_CACHE_MS});
   return {...base, cached:false};
