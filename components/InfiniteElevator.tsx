@@ -435,6 +435,8 @@ export default function InfiniteElevator(){
   const [slotWin,setSlotWin]=useState(false); const [slotMessage,setSlotMessage]=useState('');
   const [casinoSpinsLeft,setCasinoSpinsLeft]=useState(10);
   const [vendingFeedback,setVendingFeedback]=useState<{kind:'luck'|'turn';gain:number;cost:number}|null>(null);
+  const [barterCount,setBarterCount]=useState(0);
+  const [vendingCount,setVendingCount]=useState(0);
   const [rareArrival,setRareArrival]=useState(0);
   const [doorChoices,setDoorChoices]=useState<DoorChoice[]>([]);
   const [gameSpeed,setGameSpeed]=useState<1|2>(1);
@@ -630,10 +632,10 @@ export default function InfiniteElevator(){
         setBoxRewards(rewards);setBoxSelected(null);setBoxRevealAll(false);
         show({tier,title:'3つの怪しい小箱',desc:'直感でどれか1つを選ぼう。選んだ後、残りの箱の中身も公開される。',result:'箱を選択',kind:'boxes'});
       }
-      else if(t==='BARTER')show({tier,title:'怪しい物々交換所',desc:'行商人がいる。手持ちのリソースを何度でも交換できる。',result:'交換選択',kind:'barter'});
+      else if(t==='BARTER'){setBarterCount(0);show({tier,title:'怪しい物々交換所',desc:'行商人がいる。交換できるのは1回の訪問につき最大5回まで。',result:'交換選択',kind:'barter'});}
       else show({tier,title:'運命の分岐路',desc:'道が2つに分かれている。',result:'道を選択',kind:'crossroads'});
     } else if(tier===2){const t=type||pick(['VENDING','SUPER_LUCKY','HEALTH','TREASURE','RUBY_MINING','STAIRS_MED','SHOP_MED','BLACKJACK','FORGE','ALTAR','MYSTERY_AUCTION','ATM']);
-      if(t==='VENDING'){const sale=Math.random()<.20;show({tier,title:'自動販売機',desc:'購入すると1/2の確率で+1される。',result:sale?'🎉 20%抽選当選！ 半額セール開催中':'自販機発見',resultType:sale?'gold':'neutral',kind:'vending',payload:{sale}});}
+      if(t==='VENDING'){setVendingCount(0);const sale=Math.random()<.20;show({tier,title:'自動販売機',desc:'購入すると1/2の確率で+1される。購入は1回の訪問につき最大5回まで。',result:sale?'🎉 20%抽選当選！ 半額セール開催中':'自販機発見',resultType:sale?'gold':'neutral',kind:'vending',payload:{sale}});}
       else if(t==='SUPER_LUCKY'){const g=ri(3,5);show({tier,title:'超ラッキー部屋',desc:'鮮やかな緑の光と粒子がゆっくり舞い始める。',result:'強い祝福を受け取ろう',kind:'reveal',payload:{type:'luck',amount:g}});}
       else if(t==='HEALTH'){const g=1;show({tier,title:'健康の湯',desc:'あたたかな湯気が疲れをゆっくりほどいていく。',result:'温泉に浸かって休もう',kind:'reveal',payload:{type:'health',amount:g}});}
       else if(t==='TREASURE'){show({tier,title:'小さな宝箱',desc:'少し上質な古い宝箱が置かれている。',result:'宝箱を開けてみよう',kind:'reveal',payload:{type:'treasure'}});}
@@ -926,7 +928,7 @@ export default function InfiniteElevator(){
       </Stack>;
     }
     if(kind==='crossroads')return <SimpleGrid columns={2} spacing={2}><Action title="平坦路" sub="確実に+300円" onClick={()=>{playSfx('coin',soundOn);patch(current=>({money:current.money+300}));show({...room,kind:undefined,result:'+300円',resultType:'success'})}}/><Action title="茨の道" sub="1500円 or -500円" onClick={()=>{const win=Math.random()<.5;playSfx(win?'success':'fail',soundOn);patch(current=>({money:Math.max(0,current.money+(win?1500:-500))}));show({...room,kind:undefined,result:win?'+1500円':'-500円',resultType:win?'gold':'danger'})}}/></SimpleGrid>;
-    if(kind==='barter')return <Stack spacing={1.5}><Action title="運気2 ⇆ 300円" onClick={()=>{if(s.luck>=2){playSfx('coin',soundOn);patch(current=>({luck:current.luck-2,money:current.money+300}));}else playSfx('fail',soundOn);}}/><Action title="600円 ⇆ 回数+1" onClick={()=>{if(s.money>=600){playSfx('success',soundOn);patch(current=>({money:current.money-600,turnsLeft:current.turnsLeft+1}));}else playSfx('fail',soundOn);}}/></Stack>;
+    if(kind==='barter')return <Stack spacing={1.5}><HStack justify="space-between"><Text fontSize="10px" color="gray.300">この訪問での交換</Text><Badge colorScheme={barterCount>=5?'red':'teal'}>{barterCount} / 5回</Badge></HStack><Action title="運気2 ⇆ 300円" disabled={barterCount>=5} onClick={()=>{if(barterCount>=5){playSfx('fail',soundOn);return;}if(s.luck>=2){playSfx('coin',soundOn);patch(current=>({luck:current.luck-2,money:current.money+300}));setBarterCount(c=>c+1);}else playSfx('fail',soundOn);}}/><Action title="600円 ⇆ 回数+1" disabled={barterCount>=5} onClick={()=>{if(barterCount>=5){playSfx('fail',soundOn);return;}if(s.money>=600){playSfx('success',soundOn);patch(current=>({money:current.money-600,turnsLeft:current.turnsLeft+1}));setBarterCount(c=>c+1);}else playSfx('fail',soundOn);}}/>{barterCount>=5&&<Text fontSize="10px" color="orange.200" textAlign="center">この訪問での交換上限（5回）に達しました</Text>}</Stack>;
     if(kind==='reveal'){
       const type=room.payload?.type as string|undefined;
       const amount=Number(room.payload?.amount||0);
@@ -937,19 +939,23 @@ export default function InfiniteElevator(){
     if(kind==='vending'){
       const sale=!!room.payload?.sale;const luckPrice=sale?100:200;const turnPrice=sale?200:400;
       const buyDrink=(drink:'luck'|'turn',cost:number)=>{
+        if(vendingCount>=5){playSfx('fail',soundOn);return;}
         if(s.money<cost){playSfx('fail',soundOn);setVendingFeedback(null);show({...room,result:`所持金が足りない…（必要 ${cost}円）`,resultType:'danger'});return;}
         const gain=Math.random()<.5?1:0;
         playSfx('buy',soundOn);
         fastTimeout(()=>playSfx(gain>0?'success':'click',soundOn),180);
         patch(current=>drink==='luck'?{money:current.money-cost,luck:current.luck+gain}:{money:current.money-cost,turnsLeft:current.turnsLeft+gain});
         setVendingFeedback({kind:drink,gain,cost});
+        setVendingCount(c=>c+1);
       };
       return <Stack spacing={2}>
+        <HStack justify="space-between"><Text fontSize="10px" color="gray.300">この訪問での購入</Text><Badge colorScheme={vendingCount>=5?'red':'green'}>{vendingCount} / 5回</Badge></HStack>
         {sale&&<Badge alignSelf="center" colorScheme="yellow" px={3} py={1}>🎉 半額セール！ 全商品50%OFF</Badge>}
         <SimpleGrid columns={2} spacing={2}>
-          <Action title="運気ドリンク" sub={`${luckPrice}円 (50%で+1)`} onClick={()=>buyDrink('luck',luckPrice)}/>
-          <Action title="回数ドリンク" sub={`${turnPrice}円 (50%で+1)`} onClick={()=>buyDrink('turn',turnPrice)}/>
+          <Action title="運気ドリンク" sub={`${luckPrice}円 (50%で+1)`} disabled={vendingCount>=5} onClick={()=>buyDrink('luck',luckPrice)}/>
+          <Action title="回数ドリンク" sub={`${turnPrice}円 (50%で+1)`} disabled={vendingCount>=5} onClick={()=>buyDrink('turn',turnPrice)}/>
         </SimpleGrid>
+        {vendingCount>=5&&<Text fontSize="10px" color="orange.200" textAlign="center">この訪問での購入上限（5回）に達しました</Text>}
         {vendingFeedback&&<Box key={`${vendingFeedback.kind}-${vendingFeedback.gain}-${vendingFeedback.cost}`} p={3} rounded="xl" textAlign="center" bg={vendingFeedback.gain>0?'green.900':'gray.800'} border="2px solid" borderColor={vendingFeedback.gain>0?'green.300':'gray.500'} boxShadow={vendingFeedback.gain>0?'0 0 22px rgba(74,222,128,.45)':'0 0 14px rgba(255,255,255,.12)'} animation="revealPulse .35s ease-out 2 alternate">
           <Text fontSize="10px" color="gray.300" fontWeight="700">購入完了　−{vendingFeedback.cost}円</Text>
           <Text mt={1} fontSize={{base:'xl',md:'2xl'}} fontWeight="900" color={vendingFeedback.gain>0?'green.200':'gray.100'}>
@@ -1040,7 +1046,7 @@ export default function InfiniteElevator(){
       <Box p={2.5} bg="rgba(15,10,2,.72)" border="1px solid" borderColor="yellow.500" rounded="xl">
         <Text fontSize="11px" fontWeight="900" color="yellow.200" textAlign="center" mb={2}>🎡 究極のルーレット 出現内容</Text>
         <SimpleGrid columns={2} spacing={1.5}>
-          {[['✨','階数 1.5倍'],['💰','所持金 +10,000円'],['⚡','回数 +5 ＆ 運気 +10'],['💀','地獄の門へ']].map(([ic,txt])=><HStack key={txt} px={2} py={1.5} bg="blackAlpha.500" rounded="md" border="1px solid" borderColor="whiteAlpha.200"><Text>{ic}</Text><Text fontSize="9px" color="gray.100" fontWeight="800">{txt}</Text></HStack>)}
+          {[['✨','階数 1.5倍'],['💰','所持金 +5,000円'],['⚡','回数 +5 ＆ 運気 +10'],['💀','地獄の門へ']].map(([ic,txt])=><HStack key={txt} px={2} py={1.5} bg="blackAlpha.500" rounded="md" border="1px solid" borderColor="whiteAlpha.200"><Text>{ic}</Text><Text fontSize="9px" color="gray.100" fontWeight="800">{txt}</Text></HStack>)}
         </SimpleGrid>
         <Text mt={1.5} fontSize="8px" color="yellow.100" textAlign="center">4種類のうち1つが選ばれます</Text>
       </Box>
@@ -1050,7 +1056,7 @@ export default function InfiniteElevator(){
         {ultimateSpinning&&<><Box position="absolute" w="145px" h="145px" rounded="full" border="2px solid" borderColor="yellow.200" animation="hellRing .8s ease-out infinite"/><Box position="absolute" w="170px" h="170px" rounded="full" border="1px solid" borderColor="purple.300" animation="hellRing 1.05s ease-out .2s infinite"/></>}
         <VStack zIndex={2} spacing={1}><Text fontSize="9px" letterSpacing=".18em" color="yellow.100">DIVINE FATE</Text><Text px={3} textAlign="center" fontSize="sm" fontWeight="black" color="yellow.100" textShadow="0 0 12px rgba(250,204,21,.8)" animation={ultimateSpinning?'ultimateFlash .24s ease-in-out infinite':'none'}>{ultimateMessage}</Text></VStack>
       </Center>
-      <Button w="100%" colorScheme="yellow" color="black" h="48px" isDisabled={ultimateSpinning||eventAnimating} isLoading={ultimateSpinning||eventAnimating} loadingText={ultimateSpinning?'神々の運命が回転中…':'結果を刻んでいる…'} onClick={()=>{if(ultimateSpinning||eventAnimating)return;setUltimateSpinning(true);setUltimateMessage('運命の輪が加速している…');playSfx('roulette',soundOn);const labels=['✨ 階数 1.5倍！','💰 お金 +10,000円！','⚡ 回数+5 ＆ 運気+10！','💀 地獄の門'];let idx=0;const timer=fastInterval(()=>{setUltimateMessage(labels[idx%labels.length]);playSfx(idx%3===0?'jackpot':'slotStop',soundOn);idx++;},95);fastTimeout(()=>{setUltimateMessage('⚡ 最終判定 ⚡');playSfx('jackpot',soundOn);},1750);fastTimeout(()=>{window.clearInterval(timer);const r=ri(0,3);const chosen=labels[r];setUltimateMessage(chosen);setUltimateSpinning(false);setEventAnimating(true);playSfx('jackpot',soundOn);window.setTimeout(()=>{if(r===0){const target=Math.max(1,Math.floor(s.floor*1.5));const delta=target-s.floor;setEventAnimating(false);show({...room,result:`究極ルーレット結果：${chosen} / ${target}階へ移動開始！`,resultType:'gold'});fastTimeout(()=>moveByEvent(delta,'究極ルーレット'),350);return;}if(r===1)patch(current=>({money:current.money+10000}));if(r===2)patch(current=>({turnsLeft:current.turnsLeft+5,luck:current.luck+10}));if(r===3){playSfx('hell',soundOn);patch({inHell:true});setRoomIntro(true);setHellDie(null);setHellRolling(false);setHellMessage('「5」が出れば生還。1回振るごとに残り回数を1消費する。');setEventAnimating(false);show({tier:5,title:'地獄の門',desc:'ここは脱出判定専用フロア。サイコロで「5」を出した瞬間だけ地上へ戻れる。失敗しても挑戦は続くが、振るたびに残り回数を1消費する。',result:'脱出条件：5を出せ / 成功率 1/6',resultType:'danger',kind:'hell'});return;}setEventAnimating(false);show({...room,kind:undefined,result:`究極ルーレット結果：${chosen}`,resultType:'gold'});},2000);},2850);}}>運命のルーレットを回す！</Button>
+      <Button w="100%" colorScheme="yellow" color="black" h="48px" isDisabled={ultimateSpinning||eventAnimating} isLoading={ultimateSpinning||eventAnimating} loadingText={ultimateSpinning?'神々の運命が回転中…':'結果を刻んでいる…'} onClick={()=>{if(ultimateSpinning||eventAnimating)return;setUltimateSpinning(true);setUltimateMessage('運命の輪が加速している…');playSfx('roulette',soundOn);const labels=['✨ 階数 1.5倍！','💰 お金 +5,000円！','⚡ 回数+5 ＆ 運気+10！','💀 地獄の門'];let idx=0;const timer=fastInterval(()=>{setUltimateMessage(labels[idx%labels.length]);playSfx(idx%3===0?'jackpot':'slotStop',soundOn);idx++;},95);fastTimeout(()=>{setUltimateMessage('⚡ 最終判定 ⚡');playSfx('jackpot',soundOn);},1750);fastTimeout(()=>{window.clearInterval(timer);const r=ri(0,3);const chosen=labels[r];setUltimateMessage(chosen);setUltimateSpinning(false);setEventAnimating(true);playSfx('jackpot',soundOn);window.setTimeout(()=>{if(r===0){const target=Math.max(1,Math.floor(s.floor*1.5));const delta=target-s.floor;setEventAnimating(false);show({...room,result:`究極ルーレット結果：${chosen} / ${target}階へ移動開始！`,resultType:'gold'});fastTimeout(()=>moveByEvent(delta,'究極ルーレット'),350);return;}if(r===1)patch(current=>({money:current.money+5000}));if(r===2)patch(current=>({turnsLeft:current.turnsLeft+5,luck:current.luck+10}));if(r===3){playSfx('hell',soundOn);patch({inHell:true});setRoomIntro(true);setHellDie(null);setHellRolling(false);setHellMessage('「5」が出れば生還。1回振るごとに残り回数を1消費する。');setEventAnimating(false);show({tier:5,title:'地獄の門',desc:'ここは脱出判定専用フロア。サイコロで「5」を出した瞬間だけ地上へ戻れる。失敗しても挑戦は続くが、振るたびに残り回数を1消費する。',result:'脱出条件：5を出せ / 成功率 1/6',resultType:'danger',kind:'hell'});return;}setEventAnimating(false);show({...room,kind:undefined,result:`究極ルーレット結果：${chosen}`,resultType:'gold'});},2000);},2850);}}>運命のルーレットを回す！</Button>
     </Stack>;
     if(kind==='god')return <Stack spacing={1}>{[makeItem('mirror',8),makeItem('ring',15),makeItem('money_tree',3),makeItem('blessing_charm',3)].map((it,i)=><Action key={i} title={it.name} onClick={()=>{playSfx('item',soundOn);addItem(it);show({...room,kind:undefined,result:`${it.name} 獲得！`,resultType:'gold'})}}/>)}</Stack>;
     if(kind==='hell')return <Stack spacing={2}>
@@ -1389,7 +1395,7 @@ export default function InfiniteElevator(){
   </Center></>;
 }
 
-function Action({title,sub,onClick}:{title:string;sub?:string;onClick:()=>void}){return <Button h="auto" minH="52px" py={2.5} px={3} bg="linear-gradient(180deg,rgba(31,34,38,.94),rgba(7,8,10,.96))" color="#eeeae1" border="1px solid" borderColor="rgba(205,207,205,.28)" borderRadius="2px" boxShadow="inset 0 1px rgba(255,255,255,.04),0 5px 14px rgba(0,0,0,.42)" _hover={{bg:'linear-gradient(180deg,#3c171b,#13090b)',color:'white',borderColor:'#9d454c'}} _active={{bg:'#13080a',color:'white',transform:'translateY(1px)'}} _focusVisible={{boxShadow:'0 0 0 2px rgba(174,72,79,.52)'}} onClick={onClick}><VStack spacing={0.5} w="100%"><Text fontFamily="heading" fontSize="sm" letterSpacing=".05em" lineHeight="1.25" fontWeight="800" color="#f0ede5" textShadow="0 2px 4px #000">{title}</Text>{sub&&<Text fontSize="10px" lineHeight="1.3" color="rgba(228,226,218,.68)" fontWeight="600">{sub}</Text>}</VStack></Button>}
+function Action({title,sub,onClick,disabled=false}:{title:string;sub?:string;onClick:()=>void;disabled?:boolean}){return <Button h="auto" minH="52px" py={2.5} px={3} bg="linear-gradient(180deg,rgba(31,34,38,.94),rgba(7,8,10,.96))" color="#eeeae1" border="1px solid" borderColor="rgba(205,207,205,.28)" borderRadius="2px" boxShadow="inset 0 1px rgba(255,255,255,.04),0 5px 14px rgba(0,0,0,.42)" _hover={{bg:'linear-gradient(180deg,#3c171b,#13090b)',color:'white',borderColor:'#9d454c'}} _active={{bg:'#13080a',color:'white',transform:'translateY(1px)'}} _focusVisible={{boxShadow:'0 0 0 2px rgba(174,72,79,.52)'}} isDisabled={disabled} onClick={onClick}><VStack spacing={0.5} w="100%"><Text fontFamily="heading" fontSize="sm" letterSpacing=".05em" lineHeight="1.25" fontWeight="800" color="#f0ede5" textShadow="0 2px 4px #000">{title}</Text>{sub&&<Text fontSize="10px" lineHeight="1.3" color="rgba(228,226,218,.68)" fontWeight="600">{sub}</Text>}</VStack></Button>}
 function StageGuideModal({ctl,stages,basePath,onPreview,onPlay}:{ctl:ReturnType<typeof useDisclosure>;stages:StageCatalogEntry[];basePath:string;onPreview:(stage:StageCatalogEntry)=>void;onPlay:(stage:StageCatalogEntry)=>void}){
   const groups=[0,1,2,3,4,5,6];
   const labels:Record<number,string>={0:'SPECIAL / START',1:'Tier 1 — Common 40%',2:'Tier 2 — Uncommon 30%',3:'Tier 3 — Rare 20%',4:'Tier 4 — Epic 9%',5:'Tier 5 — Legend 1%',6:'SPECIAL — HELL'};
