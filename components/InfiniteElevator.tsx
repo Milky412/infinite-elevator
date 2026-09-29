@@ -751,14 +751,21 @@ export default function InfiniteElevator(){
   const setupMining=(tier:number,gem:ItemId)=>{setRocks(Array.from({length:5},()=>{const ok=Math.random()<.60;const r=Math.random();const count=ok?(r<.55?1:r<.85?2:3):0;return {gem:ok?gem:null,count,open:false}}));setPicks(2);show({tier,title:gem==='ruby'?'ルビーの採掘場':gem==='emerald'?'エメラルドの採掘場':'ダイヤモンドの採掘場',desc:'5つの岩から2つ壊そう！宝石が出るかも！',result:'岩を選んで壊そう',kind:'mining'});};
   const setupShop=(tier:number,count:number)=>{const pool=[makeItem('mirror',ri(3,5)),makeItem('ring',ri(6,9)),makeItem('shop_ticket'),makeItem('sage_gem'),makeItem('party_set'),makeItem('money_tree',ri(1,2)),makeItem('blessing_charm',ri(1,2))].sort(()=>Math.random()-.5).slice(0,count).map(item=>({item,sold:false}));setShop(pool);show({tier,title:count===1?'小さなお店':count===3?'大きなお店':'ホームセンター',desc:'アイテムの購入が可能。※宝石のみ売却できます。',result:'ショップ営業中',kind:'shop'});};
 
-  const press=()=>{if(moving||gameover||s.turnsLeft<=0||s.inHell)return; playSfx('door',soundOn); setMoving(true);setDoors(false); let x={...s,items:[...s.items]}; const protectedByMag=x.items.some(i=>i.id==='immortal_mag'); if(!protectedByMag)x.turnsLeft--; x.items.forEach(i=>{if(i.id==='money_tree')x.money+=100*(i.paramN||1); if(i.id==='blessing_charm')x.luck+=(i.paramN||1); if(i.id==='kusanagi'){x.luck+=2;x.money+=200;}}); if(x.ringBuff.active){x.ringBuff={...x.ringBuff,turns:x.ringBuff.turns-1}; if(x.ringBuff.turns<=0){x.luck-=x.ringBuff.amount;x.ringBuff={active:false,turns:0,amount:0};}}
+  const press=()=>{if(moving||gameover||s.turnsLeft<=0||s.inHell)return; playSfx('door',soundOn); setMoving(true);setDoors(false); let x={...s,items:[...s.items],ringBuff:{...s.ringBuff}}; const protectedByMag=x.items.some(i=>i.id==='immortal_mag'); if(!protectedByMag)x.turnsLeft--; x.items.forEach(i=>{if(i.id==='money_tree')x.money+=100*(i.paramN||1); if(i.id==='blessing_charm')x.luck+=(i.paramN||1); if(i.id==='kusanagi'){x.luck+=2;x.money+=200;}});
+    // 幸運の指輪は「次の3回の上昇計算」まで有効。3回目の計算後に解除する。
+    const effectiveLuck=x.luck;
     let targetTier=1;
     if(x.partySet){const r=Math.random();targetTier=r<.72?2:r<.92?3:4;}
     else {const r=Math.random();targetTier=r<.65?1:r<.90?2:r<.98?3:4;}
     x.partySet=false;
     const base=targetTier===1?ri(1,12):targetTier===2?ri(10,30):targetTier===3?ri(25,50):ri(40,80);
     const luckMult=targetTier===1?ri(2,3):targetTier===2?ri(3,4):targetTier===3?ri(4,5):ri(5,7);
-    const rawSteps=base+Math.max(0,x.luck)*luckMult;
+    const rawSteps=base+Math.max(0,effectiveLuck)*luckMult;
+    if(x.ringBuff.active){
+      const nextTurns=x.ringBuff.turns-1;
+      if(nextTurns<=0){x.luck-=x.ringBuff.amount;x.ringBuff={active:false,turns:0,amount:0};}
+      else x.ringBuff={...x.ringBuff,turns:nextTurns};
+    }
     const mirrorMul=x.mirrorMultiplier;
     const yataMul=x.items.some(i=>i.id==='yata_mirror')?2:1;
     const finalSteps=rawSteps*mirrorMul*yataMul;
@@ -775,7 +782,7 @@ export default function InfiniteElevator(){
       const revealDelay=targetTier===1?1380:targetTier===2?2100:targetTier===3?3000:4500;
       fastTimeout(()=>{
         window.clearInterval(timer);
-        setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:`素の上昇値：基礎${base} + 運気(${x.luck})×${luckMult}`,locked:true});
+        setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:`素の上昇値：基礎${base} + 運気(${effectiveLuck})×${luckMult}`,locked:true});
         const finish=()=>{const multDetail=[mirrorMul>1?`乱反射×${mirrorMul}`:'',yataMul>1?'八咫鏡×2':''].filter(Boolean).join(' ＋ ');setOverlay({show:true,tier:targetTier,steps:finalSteps,detail:multDetail?`✨ ${multDetail} 適用！ ${rawSteps} → ${finalSteps}階 ✨`:`上昇階数 +${finalSteps} 確定！`,locked:true});playSfx(targetTier>=3?'jackpot':'arrive',soundOn);fastTimeout(()=>{setOverlay(o=>({...o,show:false}));setS(y=>({...y,floor:y.floor+finalSteps,logs:[`【ボタン】演出${targetTier}! +${finalSteps}階登った！`,...y.logs]}));fastTimeout(()=>{playSfx('arrive',soundOn);triggerRoom();setDoors(true);setMoving(false);},180);},900);};
         if(mirrorMul>1){fastTimeout(()=>{playSfx('item',soundOn);setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:`🪞 乱反射の鏡★${mirrorMul} 発動！ ${rawSteps}階を ×${mirrorMul} へ！`,locked:true});fastTimeout(finish,900);},650);}else{fastTimeout(finish,650);}
       },revealDelay);
@@ -1193,7 +1200,7 @@ export default function InfiniteElevator(){
             <HStack spacing={1.5} align="center" justify="flex-start" w="100%">
               <Button h="28px" size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={inventoryPanel.onOpen}>アイテム {s.items.length}/3</Button>
               <Button h="28px" size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={logPanel.onOpen}>ログ</Button>
-              {(s.ringBuff.active||s.mirrorMultiplier>1||s.partySet)&&<HStack spacing={1} flexWrap="wrap">{s.ringBuff.active&&<Badge fontSize="7px" colorScheme="green">指輪+{s.ringBuff.amount}</Badge>}{s.mirrorMultiplier>1&&<Badge fontSize="7px" colorScheme="cyan">鏡×{s.mirrorMultiplier}</Badge>}{s.partySet&&<Badge fontSize="7px" colorScheme="pink">演出UP</Badge>}</HStack>}
+              {(s.ringBuff.active||s.mirrorMultiplier>1||s.partySet)&&<HStack spacing={1} flexWrap="wrap">{s.ringBuff.active&&<Badge fontSize="7px" colorScheme="green">指輪+{s.ringBuff.amount} / 残り{s.ringBuff.turns}</Badge>}{s.mirrorMultiplier>1&&<Badge fontSize="7px" colorScheme="cyan">鏡×{s.mirrorMultiplier}</Badge>}{s.partySet&&<Badge fontSize="7px" colorScheme="pink">演出UP</Badge>}</HStack>}
             </HStack>
             <Box w="100%" overflowX="auto" overflowY="hidden" sx={{WebkitOverflowScrolling:'touch'}}>
               <HStack spacing={1.5} justify="flex-start" minW="max-content" pb={.5}>
