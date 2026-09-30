@@ -552,3 +552,7 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - 幸運の指輪の効果が3回目の上昇計算前に解除されていた不具合を修正。
 - 次の3回の上昇階数計算に運気+nが反映され、3回目の計算後に解除されます。
 - HUDの指輪バッジに残り回数を表示します。
+
+## v90 mining gem overflow fix
+- Mining rewards of the same gem are aggregated before inventory overflow handling.
+- Example: Ruby x2 + Ruby x1 now becomes one pending Ruby x3 entry when inventory is full, so later rewards are no longer lost.
