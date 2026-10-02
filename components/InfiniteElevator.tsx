@@ -15,7 +15,7 @@ import type { Item, ItemId, Room, State } from '../lib/types';
 import { firebaseReady } from '../lib/firebase';
 import { getCurrentMonthKey, getCurrentMonthLabel, loadRankingView, previewRankings, submitRankings, type MyRankingResult, type RankingEntry, type RankingScope, type ScorePreviewBundle } from '../lib/leaderboard';
 import { appendPlayHistory, getLocalHistorySummary, getOrCreatePlayerId, loadPlayHistory } from '../lib/localProfile';
-import { cancelBattleRoom, createBattleRoom, joinBattleRoom, subscribeBattleRoom, updateBattleProgress, type BattleRole, type BattleRoom } from '../lib/battle';
+import { cancelBattleRoom, createBattleRoom, getBattlePlayers, joinBattleRoom, subscribeBattleRoom, updateBattleProgress, type BattleRole, type BattleRoom } from '../lib/battle';
 
 const tierMeta = [
   {name:'Tier 1 Common', bg:'radial-gradient(circle at center, rgba(14,165,233,.15), rgba(15,23,42,.95))', color:'cyan.300'},
@@ -454,6 +454,8 @@ export default function InfiniteElevator(){
   const [battleError,setBattleError]=useState('');
   const [battleActive,setBattleActive]=useState(false);
   const [battleRunFinished,setBattleRunFinished]=useState(false);
+  const [battleMaxPlayers,setBattleMaxPlayers]=useState<2|3|4>(2);
+  const [spectateRole,setSpectateRole]=useState<BattleRole|null>(null);
   const battleStartedRef=useRef(false);
   const battleUnsubRef=useRef<null|(()=>void)>(null);
   const menuVisualSrc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-v45.png`;
@@ -545,10 +547,18 @@ export default function InfiniteElevator(){
   },[battleActive,battleRunFinished,battleCode,battleRole,s.floor,s.turnsLeft,room.title,roomIntro,moving,eventAnimating,floorTransition.show,overlay.show]);
   useEffect(()=>{
     if(!battleActive||!battleRunFinished||!battleRoom||!battleRole||battleResult.isOpen)return;
-    const me=battleRole==='host'?battleRoom.hostProgress:battleRoom.guestProgress;
-    const opp=battleRole==='host'?battleRoom.guestProgress:battleRoom.hostProgress;
-    if(me?.finished&&opp?.finished) battleResult.onOpen();
+    const players=getBattlePlayers(battleRoom);
+    const me=battleRoom.players?.[battleRole];
+    const allFinished=players.length===battleRoom.maxPlayers&&players.every(({player})=>player.progress.finished);
+    if(me?.progress.finished&&allFinished) battleResult.onOpen();
   },[battleActive,battleRunFinished,battleRoom,battleRole,battleResult.isOpen]);
+
+  useEffect(()=>{
+    if(!battleRunFinished||!battleRoom||!battleRole)return;
+    const candidates=getBattlePlayers(battleRoom).filter(({role,player})=>role!==battleRole&&!player.progress.finished);
+    if(candidates.length===0){setSpectateRole(null);return;}
+    if(!spectateRole||!candidates.some(x=>x.role===spectateRole)) setSpectateRole(candidates[0].role);
+  },[battleRunFinished,battleRoom,battleRole,spectateRole]);
 
   const log=(m:string)=>setS(x=>({...x,logs:[m,...x.logs]}));
   const patch=(p:Partial<State>|((current:State)=>Partial<State>))=>setS(current=>({...current,...(typeof p==='function'?p(current):p)}));
@@ -618,7 +628,7 @@ export default function InfiniteElevator(){
   };
 
   const resetRunCore=()=>{playSfx('start',soundOn);runRecordedRef.current=false;setNewPersonalBest(false);setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);setRoomIntro(false);scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setS({...baseState,highScore:s.highScore});setMenu(false);setGameover(false);setDoors(true);setRoom({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});};
-  const clearBattleSession=()=>{battleUnsubRef.current?.();battleUnsubRef.current=null;setBattleCode('');setBattleRole(null);setBattleRoom(null);setBattleActive(false);setBattleRunFinished(false);battleStartedRef.current=false;};
+  const clearBattleSession=()=>{battleUnsubRef.current?.();battleUnsubRef.current=null;setBattleCode('');setBattleRole(null);setBattleRoom(null);setBattleActive(false);setBattleRunFinished(false);setSpectateRole(null);battleStartedRef.current=false;};
   const start=()=>{clearBattleSession();resetRunCore();};
   const startBattleRun=()=>{setBattleActive(true);setBattleRunFinished(false);resetRunCore();};
   const watchBattle=(code:string,role:BattleRole)=>{
@@ -632,7 +642,7 @@ export default function InfiniteElevator(){
   const createBattle=async()=>{
     if(!firebaseReady){setBattleError('オンライン対戦にはFirebase設定が必要です。');return;}
     setBattleBusy(true);setBattleError('');
-    try{const result=await createBattleRoom(nickname);setBattleCode(result.code);setBattleRole(result.role);watchBattle(result.code,result.role);}
+    try{const result=await createBattleRoom(nickname,battleMaxPlayers);setBattleCode(result.code);setBattleRole(result.role);watchBattle(result.code,result.role);}
     catch(e){setBattleError(e instanceof Error?e.message:'ルーム作成に失敗しました');}
     finally{setBattleBusy(false);}
   };
@@ -1294,26 +1304,51 @@ export default function InfiniteElevator(){
         </Box>
 
         {battleActive&&battleRoom&&battleRole&&(()=>{
-          const opp=battleRole==='host'?battleRoom.guestProgress:battleRoom.hostProgress;
-          const oppName=battleRole==='host'?battleRoom.guestName:battleRoom.hostName;
-          const oppStage=stageCatalog.find(stage=>stage.title===(opp?.roomTitle||'エレベーターホール'));
-          const oppImage=oppStage?.image?`${process.env.NEXT_PUBLIC_BASE_PATH||''}/${oppStage.image}`:null;
-          const phaseLabel=opp?.finished?'操作完了':opp?.phase==='dialogue'?'会話中':opp?.phase==='moving'?'移動中':opp?.phase==='event'?'イベント中':'選択・操作中';
-          return <Box position="absolute" top={{base:'186px',md:'12px'}} right={{base:'8px',md:'12px'}} zIndex={27} w={{base:'150px',md:'260px'}} h={{base:'96px',md:'152px'}} overflow="hidden" bg="#050608" bgImage={oppImage?`linear-gradient(180deg,rgba(0,0,0,.08),rgba(0,0,0,.42)), url("${oppImage}")`:oppStage?.bg} bgSize="cover" bgPosition="center" border="2px solid rgba(235,112,122,.72)" borderRadius="10px" boxShadow="0 14px 34px rgba(0,0,0,.58),0 0 18px rgba(239,68,68,.18)" pointerEvents="none">
-            <Box position="absolute" inset={0} bg="linear-gradient(180deg,rgba(0,0,0,.58) 0%,transparent 34%,rgba(0,0,0,.78) 100%)"/>
-            <HStack position="absolute" top={{base:1,md:2}} left={{base:1.5,md:2}} right={{base:1.5,md:2}} justify="space-between" spacing={1}>
-              <HStack spacing={1} minW={0}><Box w="6px" h="6px" rounded="full" bg={opp?.finished?'green.300':'red.300'} boxShadow={opp?.finished?'0 0 8px #68d391':'0 0 8px #fc8181'}/><Text fontSize={{base:'7px',md:'9px'}} color="white" fontWeight="900" noOfLines={1}>{oppName||'相手'}</Text></HStack>
-              <Badge fontSize={{base:'5px',md:'7px'}} colorScheme="red">LIVE</Badge>
-            </HStack>
-            <Center position="absolute" inset={{base:'22px 5px 24px',md:'34px 10px 34px'}} flexDir="column" textAlign="center">
-              <Text fontSize={{base:'7px',md:'10px'}} color="whiteAlpha.800" fontWeight="800" textShadow="0 2px 6px #000" noOfLines={1}>{opp?.roomTitle||'エレベーターホール'}</Text>
-              <Text mt={{base:.5,md:1}} fontFamily="mono" fontSize={{base:'20px',md:'34px'}} lineHeight="1" color="yellow.100" fontWeight="900" textShadow="0 2px 9px #000">{opp?.floor||1}F</Text>
+          const opponents=getBattlePlayers(battleRoom).filter(({role})=>role!==battleRole);
+          return <VStack position="absolute" top={{base:'184px',md:'12px'}} right={{base:'6px',md:'12px'}} zIndex={27} spacing={{base:1,md:1.5}} w={{base:'118px',md:'220px'}} align="stretch" pointerEvents="none">
+            {opponents.map(({role,player})=>{
+              const opp=player.progress;
+              const oppStage=stageCatalog.find(stage=>stage.title===(opp.roomTitle||'エレベーターホール'));
+              const oppImage=oppStage?.image?`${process.env.NEXT_PUBLIC_BASE_PATH||''}/${oppStage.image}`:null;
+              const phaseLabel=opp.finished?'終了':opp.phase==='dialogue'?'会話':opp.phase==='moving'?'移動':opp.phase==='event'?'イベント':'操作中';
+              return <Box key={role} position="relative" h={{base:'62px',md:'98px'}} overflow="hidden" bg="#050608" bgImage={oppImage?`linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.55)), url("${oppImage}")`:oppStage?.bg} bgSize="cover" bgPosition="center" border="1px solid rgba(235,112,122,.68)" borderRadius="8px" boxShadow="0 8px 22px rgba(0,0,0,.52)">
+                <Box position="absolute" inset={0} bg="linear-gradient(180deg,rgba(0,0,0,.62),transparent 42%,rgba(0,0,0,.78))"/>
+                <HStack position="absolute" top="4px" left="5px" right="5px" justify="space-between" spacing={1}>
+                  <Text fontSize={{base:'6px',md:'8px'}} color="white" fontWeight="900" noOfLines={1}>{player.name}</Text>
+                  <Badge fontSize={{base:'4px',md:'6px'}} colorScheme={opp.finished?'green':'red'}>{opp.finished?'END':'LIVE'}</Badge>
+                </HStack>
+                <Center position="absolute" inset={{base:'14px 3px 13px',md:'22px 5px 18px'}} flexDir="column">
+                  <Text fontFamily="mono" fontSize={{base:'15px',md:'24px'}} lineHeight="1" color="yellow.100" fontWeight="900" textShadow="0 2px 7px #000">{opp.floor}F</Text>
+                  <Text mt="2px" fontSize={{base:'5px',md:'7px'}} color="whiteAlpha.800" noOfLines={1}>{opp.roomTitle||'エレベーターホール'}</Text>
+                </Center>
+                <HStack position="absolute" bottom="3px" left="5px" right="5px" justify="space-between"><Text fontSize={{base:'5px',md:'7px'}} color="cyan.100" fontWeight="800">{phaseLabel}</Text><Text fontSize={{base:'5px',md:'7px'}} color="whiteAlpha.800">残り{opp.turns}</Text></HStack>
+              </Box>;
+            })}
+          </VStack>;
+        })()}
+
+        {battleActive&&battleRunFinished&&battleRoom&&battleRole&&(()=>{
+          const players=getBattlePlayers(battleRoom);
+          const unfinished=players.filter(({role,player})=>role!==battleRole&&!player.progress.finished);
+          if(unfinished.length===0)return null;
+          const selected=unfinished.find(x=>x.role===spectateRole)||unfinished[0];
+          const progress=selected.player.progress;
+          const stage=stageCatalog.find(x=>x.title===(progress.roomTitle||'エレベーターホール'));
+          const image=stage?.image?`${process.env.NEXT_PUBLIC_BASE_PATH||''}/${stage.image}`:null;
+          const phaseLabel=progress.phase==='dialogue'?'会話中':progress.phase==='moving'?'移動中':progress.phase==='event'?'イベント中':'選択・操作中';
+          return <Box position="absolute" inset={0} zIndex={36} bg="#020304" bgImage={image?`linear-gradient(180deg,rgba(0,0,0,.28),rgba(0,0,0,.50)), url("${image}")`:stage?.bg} bgSize="cover" bgPosition="center" overflow="hidden">
+            <Box position="absolute" inset={0} bg="linear-gradient(180deg,rgba(0,0,0,.72) 0%,rgba(0,0,0,.10) 25%,rgba(0,0,0,.16) 64%,rgba(0,0,0,.82) 100%)"/>
+            <VStack position="absolute" top={{base:3,md:5}} left={{base:3,md:6}} right={{base:3,md:6}} spacing={2}>
+              <HStack w="100%" justify="space-between"><Badge colorScheme="red" fontSize={{base:'9px',md:'11px'}}>LIVE 観戦中</Badge><Text color="whiteAlpha.800" fontSize={{base:'9px',md:'11px'}}>全員終了後に結果を表示</Text></HStack>
+              <HStack w="100%" spacing={2} overflowX="auto" justify={{base:'flex-start',md:'center'}}>{unfinished.map(({role,player})=><Button key={role} size="xs" flexShrink={0} bg={selected.role===role?'rgba(127,29,29,.92)':'rgba(0,0,0,.64)'} color="white" border="1px solid" borderColor={selected.role===role?'red.300':'whiteAlpha.300'} onClick={()=>setSpectateRole(role)}>{player.name} {player.progress.floor}F</Button>)}</HStack>
+            </VStack>
+            <Center position="absolute" inset={{base:'90px 12px 92px',md:'110px 40px 110px'}} flexDir="column" textAlign="center">
+              <Text color="white" fontFamily="heading" fontSize={{base:'xl',md:'3xl'}} fontWeight="900" textShadow="0 3px 12px #000">{selected.player.name}</Text>
+              <Text mt={2} color="whiteAlpha.800" fontSize={{base:'sm',md:'md'}} textShadow="0 2px 8px #000">{progress.roomTitle||'エレベーターホール'}</Text>
+              <Text mt={3} fontFamily="mono" fontSize={{base:'6xl',md:'8xl'}} lineHeight="1" fontWeight="900" color="yellow.100" textShadow="0 4px 18px #000">{progress.floor}F</Text>
+              <HStack mt={4} spacing={3}><Badge px={3} py={1.5} fontSize={{base:'10px',md:'13px'}} colorScheme="cyan">残り {progress.turns}</Badge><Badge px={3} py={1.5} fontSize={{base:'10px',md:'13px'}} colorScheme="purple">{phaseLabel}</Badge></HStack>
             </Center>
-            <HStack position="absolute" left={{base:1.5,md:2}} right={{base:1.5,md:2}} bottom={{base:1,md:2}} justify="space-between" align="center">
-              <Text fontSize={{base:'6px',md:'8px'}} color={opp?.finished?'green.200':'cyan.100'} fontWeight="900">{phaseLabel}</Text>
-              <Badge bg="rgba(0,0,0,.62)" color="cyan.100" border="1px solid rgba(103,232,249,.32)" fontSize={{base:'6px',md:'8px'}}>残り {opp?.turns??10}</Badge>
-            </HStack>
-            {battleRunFinished&&!opp?.finished&&<Center position="absolute" inset={0} bg="rgba(0,0,0,.64)" flexDir="column"><Text fontSize={{base:'7px',md:'10px'}} color="white" fontWeight="900">相手の最終操作を待機中</Text><Text mt={1} fontSize={{base:'6px',md:'8px'}} color="whiteAlpha.700">結果はまだ表示されません</Text></Center>}
+            <Center position="absolute" left={0} right={0} bottom={{base:5,md:7}}><Text color="whiteAlpha.700" fontSize={{base:'10px',md:'12px'}}>ほかのプレイヤーを選ぶと観戦先を切り替えられます</Text></Center>
           </Box>;
         })()}
 
@@ -1336,27 +1371,31 @@ export default function InfiniteElevator(){
                     {overlay.show&&<Center position="absolute" inset={0} bg={overlay.tier===4?'linear-gradient(180deg,rgba(69,26,3,.96),rgba(0,0,0,.97))':'rgba(0,0,0,.94)'} zIndex={30} flexDir="column" overflow="hidden"><Box position="absolute" inset="-20%" bg={overlay.tier===4?'radial-gradient(circle,rgba(250,204,21,.25),transparent 50%)':overlay.tier===3?'radial-gradient(circle,rgba(168,85,247,.22),transparent 50%)':overlay.tier===2?'radial-gradient(circle,rgba(16,185,129,.16),transparent 50%)':'radial-gradient(circle,rgba(34,211,238,.12),transparent 50%)'} animation="elevatorAura .55s ease-in-out infinite alternate"/><Text zIndex={1} fontSize="10px" letterSpacing=".24em" color="whiteAlpha.700" fontWeight="900">ELEVATOR SYSTEM</Text><Badge zIndex={1} mt={2} px={3} py={1} fontSize="xs" colorScheme={overlay.tier===4?'yellow':overlay.tier===3?'purple':overlay.tier===2?'green':'cyan'}>{['','NORMAL RISE','🚀 BOOSTER','⚡ LIMIT BREAK','✨ OVERDRIVE / 激熱 ✨'][overlay.tier]}</Badge>{overlay.tier>=3&&<Text zIndex={1} mt={2} fontSize={overlay.tier===4?'xl':'md'} fontWeight="black" color={overlay.tier===4?'yellow.200':'purple.200'} textShadow="0 0 18px currentColor" animation="hypeBlink .28s steps(2) infinite">{overlay.tier===4?'超 激 熱':'CHANCE UP!'}</Text>}<Text zIndex={1} fontFamily="mono" fontSize={overlay.locked?'7xl':'6xl'} fontWeight="black" color={tierMeta[Math.min(4,overlay.tier-1)].color} textShadow="0 0 24px currentColor" transform={overlay.locked?'scale(1.08)':'scale(.92)'} transition="all .18s ease">+{overlay.steps}</Text><Text zIndex={1} fontSize="11px" color={overlay.locked?'white':'gray.300'} fontWeight={overlay.locked?'900':'600'} mt={2}>{overlay.detail}</Text><HStack zIndex={1} mt={3} spacing={1}>{Array.from({length:8}).map((_,i)=><Box key={i} w="18px" h="4px" rounded="full" bg={i<overlay.tier*2?(overlay.tier===4?'yellow.300':overlay.tier===3?'purple.300':overlay.tier===2?'green.300':'cyan.300'):'whiteAlpha.200'} boxShadow={i<overlay.tier*2?'0 0 8px currentColor':undefined}/>)}</HStack></Center>}
         </Flex>
 
-        {!roomIntro&&<Box position="absolute" left={{base:2,md:'12%'}} right={{base:2,md:'12%'}} bottom={{base:2,md:3}} bg="rgba(3,4,6,.72)" backdropFilter="blur(9px)" p={{base:1.5,lg:2}} border="1px solid" borderColor="rgba(205,207,205,.22)" borderRadius="10px" zIndex={22}><Center><Button w="100%" maxW={{base:'100%',lg:'720px'}} h={{base:'50px',lg:'58px'}} bg={finalMode?"linear-gradient(180deg,#5b171e,#1e090c)":"linear-gradient(180deg,#1c1f23,#090a0c)"} color="#f1eee6" fontFamily="heading" letterSpacing=".10em" fontSize="md" fontWeight="800" textShadow="0 2px 5px #000" border="1px solid" borderColor={finalMode?"#a44850":"rgba(226,224,216,.42)"} borderRadius="2px" boxShadow={finalMode?"0 0 20px rgba(130,28,36,.30),inset 0 1px rgba(255,255,255,.05)":"0 8px 20px rgba(0,0,0,.50),inset 0 1px rgba(255,255,255,.05)"} _hover={{bg:finalMode?'#6d1c24':'#272a2e',borderColor:finalMode?'#cf666e':'#d9d5ca',color:'white'}} _active={{transform:'translateY(1px)',bg:'#0a0b0d'}} _disabled={{opacity:.48,color:'whiteAlpha.700',cursor:'not-allowed'}} leftIcon={finalMode||battleRunFinished?undefined:<FaArrowUp/>} isDisabled={disabled||eventAnimating||floorTransition.show||overlay.show||battleRunFinished} onClick={()=>{if(battleRunFinished)return;if(finalMode)end();else press();}}>{battleRunFinished?'相手の終了を待っています…':finalMode?'ゲームを終了する':'ボタンを押す'}</Button></Center></Box>}
+        {!roomIntro&&<Box position="absolute" left={{base:2,md:'12%'}} right={{base:2,md:'12%'}} bottom={{base:2,md:3}} bg="rgba(3,4,6,.72)" backdropFilter="blur(9px)" p={{base:1.5,lg:2}} border="1px solid" borderColor="rgba(205,207,205,.22)" borderRadius="10px" zIndex={22}><Center><Button w="100%" maxW={{base:'100%',lg:'720px'}} h={{base:'50px',lg:'58px'}} bg={finalMode?"linear-gradient(180deg,#5b171e,#1e090c)":"linear-gradient(180deg,#1c1f23,#090a0c)"} color="#f1eee6" fontFamily="heading" letterSpacing=".10em" fontSize="md" fontWeight="800" textShadow="0 2px 5px #000" border="1px solid" borderColor={finalMode?"#a44850":"rgba(226,224,216,.42)"} borderRadius="2px" boxShadow={finalMode?"0 0 20px rgba(130,28,36,.30),inset 0 1px rgba(255,255,255,.05)":"0 8px 20px rgba(0,0,0,.50),inset 0 1px rgba(255,255,255,.05)"} _hover={{bg:finalMode?'#6d1c24':'#272a2e',borderColor:finalMode?'#cf666e':'#d9d5ca',color:'white'}} _active={{transform:'translateY(1px)',bg:'#0a0b0d'}} _disabled={{opacity:.48,color:'whiteAlpha.700',cursor:'not-allowed'}} leftIcon={finalMode||battleRunFinished?undefined:<FaArrowUp/>} isDisabled={disabled||eventAnimating||floorTransition.show||overlay.show||battleRunFinished} onClick={()=>{if(battleRunFinished)return;if(finalMode)end();else press();}}>{battleRunFinished?'ほかのプレイヤーの終了を待っています…':finalMode?'ゲームを終了する':'ボタンを押す'}</Button></Center></Box>}
       </Flex>
 
       <Modal isOpen={battleLobby.isOpen} onClose={()=>{if(!battleCode){battleLobby.onClose();setBattleError('');}}} closeOnOverlayClick={!battleCode} isCentered>
         <ModalOverlay bg="rgba(0,0,0,.84)" backdropFilter="blur(7px)"/>
-        <ModalContent bg="linear-gradient(180deg,#171a20,#07080a)" maxW="390px" border="1px solid rgba(218,216,208,.28)" borderRadius="8px">
+        <ModalContent bg="linear-gradient(180deg,#171a20,#07080a)" maxW="410px" border="1px solid rgba(218,216,208,.28)" borderRadius="8px">
           <ModalHeader fontFamily="heading" color="#eee9df">オンライン対戦</ModalHeader>
           <ModalBody><Stack spacing={3}>
-            <Text fontSize="11px" color="gray.300" lineHeight="1.8">2人で通常ルールを初期10回から同時にプレイし、最終到達階が高い方の勝利です。ルームコードを相手に共有してください。</Text>
-            {battleCode?<Box p={4} textAlign="center" bg="rgba(82,25,32,.36)" border="1px solid rgba(218,112,120,.42)" borderRadius="8px"><Text fontSize="9px" color="gray.400">ROOM CODE</Text><Text mt={1} fontFamily="mono" fontSize="3xl" letterSpacing=".18em" color="yellow.100" fontWeight="900">{battleCode}</Text><Text mt={2} fontSize="10px" color="gray.300">相手の参加を待っています…</Text></Box>:<><Button h="48px" colorScheme="red" isLoading={battleBusy} onClick={()=>void createBattle()}>ルームを作成</Button><Divider borderColor="whiteAlpha.200"/><Text fontSize="10px" color="gray.400" textAlign="center">またはルームコードで参加</Text><Input value={battleCodeInput} onChange={e=>setBattleCodeInput(e.target.value.replace(/\D/g,'').slice(0,3))} maxLength={3} inputMode="numeric" placeholder="3桁コード" textAlign="center" fontFamily="mono" letterSpacing=".22em"/><Button variant="outline" colorScheme="yellow" isLoading={battleBusy} isDisabled={battleCodeInput.length!==3} onClick={()=>void joinBattle()}>参加する</Button></>}
+            <Text fontSize="11px" color="gray.300" lineHeight="1.8">2〜4人で同時にプレイし、全員の最終操作が終わった時点の到達階で順位を決めます。</Text>
+            {battleCode&&battleRoom?<Box p={4} textAlign="center" bg="rgba(82,25,32,.36)" border="1px solid rgba(218,112,120,.42)" borderRadius="8px"><Text fontSize="9px" color="gray.400">3桁 ROOM CODE</Text><Text mt={1} fontFamily="mono" fontSize="3xl" letterSpacing=".18em" color="yellow.100" fontWeight="900">{battleCode}</Text><Text mt={2} fontSize="10px" color="gray.300">参加者 {getBattlePlayers(battleRoom).length} / {battleRoom.maxPlayers} 人</Text><Stack mt={3} spacing={1}>{getBattlePlayers(battleRoom).map(({role,player})=><HStack key={role} justify="space-between" bg="blackAlpha.300" px={3} py={1.5} borderRadius="6px"><Text fontSize="10px" color="whiteAlpha.900">{player.name}</Text><Badge fontSize="7px" colorScheme={role===battleRole?'yellow':'cyan'}>{role===battleRole?'YOU':'READY'}</Badge></HStack>)}</Stack><Text mt={3} fontSize="9px" color="gray.400">人数が揃うと自動で開始します</Text></Box>:<><Text fontSize="10px" color="gray.400">ルーム作成人数</Text><SimpleGrid columns={3} spacing={2}>{([2,3,4] as const).map(n=><Button key={n} size="sm" bg={battleMaxPlayers===n?'#6b1c25':'whiteAlpha.080'} color="white" border="1px solid" borderColor={battleMaxPlayers===n?'red.300':'whiteAlpha.200'} onClick={()=>setBattleMaxPlayers(n)}>{n}人</Button>)}</SimpleGrid><Button h="48px" colorScheme="red" isLoading={battleBusy} onClick={()=>void createBattle()}>ルームを作成</Button><Divider borderColor="whiteAlpha.200"/><Text fontSize="10px" color="gray.400" textAlign="center">または3桁ルームコードで参加</Text><Input value={battleCodeInput} onChange={e=>setBattleCodeInput(e.target.value.replace(/\D/g,'').slice(0,3))} maxLength={3} inputMode="numeric" placeholder="3桁コード" textAlign="center" fontFamily="mono" letterSpacing=".22em"/><Button variant="outline" colorScheme="yellow" isLoading={battleBusy} isDisabled={battleCodeInput.length!==3} onClick={()=>void joinBattle()}>参加する</Button></>}
             {battleError&&<Text fontSize="10px" color="red.200" textAlign="center">{battleError}</Text>}
           </Stack></ModalBody>
-          <ModalFooter>{battleCode?<Button w="100%" variant="outline" colorScheme="red" onClick={()=>{void cancelBattleRoom(battleCode);clearBattleSession();battleLobby.onClose();}}>対戦をキャンセル</Button>:<Button w="100%" variant="ghost" onClick={battleLobby.onClose}>閉じる</Button>}</ModalFooter>
+          <ModalFooter>{battleCode?<Button w="100%" variant="outline" colorScheme="red" onClick={()=>{if(battleRole==='p1')void cancelBattleRoom(battleCode);clearBattleSession();battleLobby.onClose();}}>{battleRole==='p1'?'対戦をキャンセル':'待機画面を閉じる'}</Button>:<Button w="100%" variant="ghost" onClick={battleLobby.onClose}>閉じる</Button>}</ModalFooter>
         </ModalContent>
       </Modal>
 
       <Modal isOpen={battleResult.isOpen} onClose={()=>{}} closeOnOverlayClick={false} isCentered>
         <ModalOverlay bg="rgba(0,0,0,.86)" backdropFilter="blur(7px)"/>
-        <ModalContent bg="linear-gradient(180deg,#171a20,#07080a)" maxW="400px" border="1px solid rgba(218,216,208,.28)" borderRadius="8px">
+        <ModalContent bg="linear-gradient(180deg,#171a20,#07080a)" maxW="430px" border="1px solid rgba(218,216,208,.28)" borderRadius="8px">
           <ModalHeader textAlign="center" fontFamily="heading" color="#eee9df">オンライン対戦結果</ModalHeader>
-          <ModalBody>{battleRoom&&battleRole&&(()=>{const me=battleRole==='host'?battleRoom.hostProgress:battleRoom.guestProgress;const opp=battleRole==='host'?battleRoom.guestProgress:battleRoom.hostProgress;const oppName=battleRole==='host'?battleRoom.guestName:battleRoom.hostName;const result=me.floor>opp.floor?'WIN':me.floor<opp.floor?'LOSE':'DRAW';return <Stack spacing={3}><SimpleGrid columns={2} spacing={2}><Box p={3} bg="whiteAlpha.050" borderRadius="8px" textAlign="center"><Text fontSize="9px" color="gray.400">あなた</Text><Text fontSize="2xl" fontWeight="900" color="yellow.100">{me?.floor||s.floor}F</Text></Box><Box p={3} bg="whiteAlpha.050" borderRadius="8px" textAlign="center"><Text fontSize="9px" color="gray.400">{oppName||'相手'}</Text><Text fontSize="2xl" fontWeight="900" color="cyan.100">{opp?.floor||1}F</Text></Box></SimpleGrid><Text textAlign="center" fontFamily="heading" fontSize="2xl" fontWeight="900" color={result==='WIN'?'yellow.200':result==='LOSE'?'red.200':'#eee9df'}>{result==='WIN'?'YOU WIN!':result==='LOSE'?'YOU LOSE':'DRAW'}</Text><Text textAlign="center" fontSize="10px" color="gray.400">両者の最終操作が完了した時点の到達階で判定しました。</Text></Stack>;})()}</ModalBody>
+          <ModalBody>{battleRoom&&battleRole&&(()=>{
+            const sorted=getBattlePlayers(battleRoom).slice().sort((a,b)=>b.player.progress.floor-a.player.progress.floor);
+            const myIndex=sorted.findIndex(x=>x.role===battleRole);
+            return <Stack spacing={3}><Text textAlign="center" fontFamily="heading" fontSize="2xl" fontWeight="900" color={myIndex===0?'yellow.200':'#eee9df'}>{myIndex===0?'YOU WIN!':`${myIndex+1}位`}</Text><Stack spacing={2}>{sorted.map(({role,player},i)=><HStack key={role} p={3} bg={role===battleRole?'rgba(113,63,18,.30)':'whiteAlpha.050'} border="1px solid" borderColor={role===battleRole?'yellow.700':'whiteAlpha.100'} borderRadius="8px" justify="space-between"><HStack><Text w="30px" fontFamily="mono" fontSize="lg" fontWeight="900" color={i===0?'yellow.200':'whiteAlpha.700'}>{i+1}</Text><Text fontSize="11px" fontWeight="900" color="white">{player.name}{role===battleRole?'（あなた）':''}</Text></HStack><Text fontFamily="mono" fontSize="xl" fontWeight="900" color="cyan.100">{player.progress.floor}F</Text></HStack>)}</Stack><Text textAlign="center" fontSize="10px" color="gray.400">全員の最終操作が完了してから順位を確定しました。</Text></Stack>;
+          })()}</ModalBody>
           <ModalFooter><Button w="100%" onClick={()=>{battleResult.onClose();clearBattleSession();setMenu(true);}}>メインメニューへ</Button></ModalFooter>
         </ModalContent>
       </Modal>
