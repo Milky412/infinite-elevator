@@ -578,3 +578,11 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - Online battle room codes are now 3 numeric digits (`000`-`999`).
 - Join input accepts digits only and requires exactly 3 digits.
 - Finished/cancelled rooms and rooms older than 2 hours can be reused to avoid exhausting the smaller code space.
+
+## v95 changes
+- Online battle rival status is now shown as a dedicated real-time card at the upper-right (desktop) / upper-right below the mobile HUD.
+- Rival card shows name, current floor, remaining turns, and playing/operation complete status.
+- After you finish, the game waits on the play screen instead of opening the result immediately.
+- Battle result opens only after Firestore reports both players' final operations as finished.
+- While waiting, the bottom button is locked and shows "相手の終了を待っています…".
+- Room codes are generated as guaranteed 3-digit values from 100 to 999.

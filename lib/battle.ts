@@ -37,7 +37,7 @@ function cleanName(name:string){
   return value||'名無しの登山者';
 }
 function makeCode(){
-  return String(Math.floor(Math.random()*1000)).padStart(3,'0');
+  return String(100+Math.floor(Math.random()*900));
 }
 const initialProgress:BattleProgress={floor:1,turns:10,finished:false};
 
