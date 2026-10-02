@@ -556,3 +556,11 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 ## v90 mining gem overflow fix
 - Mining rewards of the same gem are aggregated before inventory overflow handling.
 - Example: Ruby x2 + Ruby x1 now becomes one pending Ruby x3 entry when inventory is full, so later rewards are no longer lost.
+
+## v91 changes
+- Ranking registration is no longer gated only by the device all-time high score. The game checks monthly and all-time Firebase personal bests after every run, so a new monthly best can be registered even when it is below the device/all-time high score.
+- Added 🍀 and ⚡ slot symbols at 2.5% three-of-a-kind probability each.
+  - 🍀: Luck + bet / 10 (20 yen => +2, 40 yen => +4, 500 yen => +50)
+  - ⚡: Turns + bet / 20 (20 yen => +1, 40 yen => +2, 500 yen => +25)
+- Slot bet maximum is 500 yen.
+- Enhanced slot presentation with more reach states, slower final-reel suspense, stronger flashing/shaking, and jackpot messages. Presentation does not alter the configured win probabilities.

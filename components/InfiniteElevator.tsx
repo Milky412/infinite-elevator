@@ -604,7 +604,11 @@ export default function InfiniteElevator(){
       setLocalHistorySummary(getLocalHistorySummary(history));
     }
     setGameover(true);
-    if(beatHighScore){void refreshScorePreview(s.floor);}else{setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);}
+    // 月間ベストは端末内の総合最高記録を超えていなくても更新できるため、
+    // Firebase利用時は毎回ランキング側の自己ベストを確認する。
+    if(firebaseReady){void refreshScorePreview(s.floor);}
+    else if(beatHighScore){void refreshScorePreview(s.floor);}
+    else{setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);}
     setS(x=>{const h=Math.max(x.highScore,x.floor); localStorage.setItem('infinite_elevator_highscore',String(h)); return {...x,highScore:h};});
   };
 
@@ -647,7 +651,7 @@ export default function InfiniteElevator(){
       else if(t==='ATM'){setAtmInput('');show({tier,title:'ATM',desc:atmDeposit>0?'以前預けたお金が満期になっている。5倍で受け取れる。':'好きな金額を預けられる特殊ATM。次にこの部屋へ来ると5倍になって戻ってくる。',result:atmDeposit>0?`預金 ${atmDeposit}円 → 受取 ${atmDeposit*5}円`:'預け入れ可能',resultType:atmDeposit>0?'gold':'neutral',kind:'atm'});}
       else show({tier,title:'ミステリーオークション',desc:'謎の袋が出品中。(1000円)',result:'競り参加',kind:'mystery'});
     } else if(tier===3){const t=type||pick(['CASINO','SUPER_LUCKY_3','HEALTH_2','EMERALD_MINING','STAIRS_LONG','SHOP_LARGE','ITEM_BOX','SURVEY_GIRL']);
-      if(t==='CASINO'){setCasinoSpinsLeft(10);setSlotMessage('');setSlot(['❔','❔','❔']);setSlotWin(false);show({tier,title:'スロットカジノ',desc:'1回の訪問につき最大10スピン。ルビー5倍・エメラルド10倍・ダイヤ30倍。',result:'CASINO OPEN / 残り10回',kind:'casino'});} 
+      if(t==='CASINO'){setCasinoSpinsLeft(10);setSlotMessage('');setSlot(['❔','❔','❔']);setSlotWin(false);show({tier,title:'スロットカジノ',desc:'1回の訪問につき最大10スピン。現金配当に加えて、🍀揃いで運気、⚡揃いで残り回数を獲得。ベット上限500円。',result:'CASINO OPEN / 残り10回',kind:'casino'});} 
       else if(t==='SUPER_LUCKY_3'){const g=ri(6,8);show({tier,title:'極ラッキー部屋',desc:'強い祝福の光が部屋いっぱいに満ちていく。',result:'祝福を受け取ろう',kind:'reveal',payload:{type:'luck',amount:g}});}
       else if(t==='HEALTH_2'){const g=ri(2,3);show({tier,title:'無病の湯',desc:'青白い湯気と滝音が身体を包み込む。',result:'静かに湯へ浸かろう',kind:'reveal',payload:{type:'health',amount:g}});}
       else if(t==='EMERALD_MINING')setupMining(tier,'emerald');
@@ -794,7 +798,7 @@ export default function InfiniteElevator(){
   const discard=(i:number)=>{playSfx('discard',soundOn);setS(x=>({...x,items:x.items.filter((_,j)=>j!==i)}));setSelected(null);};
 
   const submitScore=async()=>{
-    if(!newPersonalBest||scoreSubmitted||scoreSubmitLockRef.current)return;
+    if(scoreSubmitted||scoreSubmitLockRef.current)return;
     const id=playerId||getOrCreatePlayerId();
     if(!playerId)setPlayerId(id);
     const hasEligiblePreview=!firebaseReady||Boolean(scorePreview&&(scorePreview.monthly.eligible||scorePreview.alltime.eligible));
@@ -982,38 +986,59 @@ export default function InfiniteElevator(){
         <Text fontSize="11px" color="gray.200" fontWeight="700">この訪問で回せる回数</Text>
         <Text fontSize="sm" color={casinoSpinsLeft>0?'yellow.300':'red.300'} fontWeight="900">残り {casinoSpinsLeft} / 10 回</Text>
       </Flex>
-      <HStack justify="center"><Button size="xs" isDisabled={slotSpinning||casinoSpinsLeft<=0} onClick={()=>setSlotBet(Math.max(20,slotBet-20))}>-</Button><Text color="yellow.300" fontWeight="900">{slotBet}円</Text><Button size="xs" isDisabled={slotSpinning||casinoSpinsLeft<=0} onClick={()=>setSlotBet(slotBet+20)}>+</Button></HStack>
-      <HStack justify="center" spacing={2}>{slot.map((v,i)=><Center key={i} bg={slotWin?'yellow.900':'black'} border="2px solid" borderColor={slotWin?'yellow.300':slotSpinning?'purple.400':'whiteAlpha.200'} boxShadow={slotWin?'0 0 18px rgba(250,204,21,.85)':'inset 0 0 12px rgba(0,0,0,.7)'} animation={slotWin?'slotJackpot .42s ease-in-out infinite alternate':slotMessage.includes('リーチ')?'reachPulse .3s ease-in-out infinite alternate':undefined} rounded="lg" w="62px" h="62px" fontSize="2xl">{v}</Center>)}</HStack>
-      {slotMessage&&<Box px={3} py={2} rounded="lg" bg={slotWin?'yellow.900':slotMessage.includes('リーチ')?'red.900':'whiteAlpha.100'} border="1px solid" borderColor={slotWin?'yellow.300':slotMessage.includes('リーチ')?'orange.300':'whiteAlpha.200'} animation={slotWin?'winText .5s ease-in-out infinite alternate':undefined}><Text textAlign="center" fontSize={slotWin?'sm':'xs'} fontWeight="900" color={slotWin?'yellow.200':slotMessage.includes('リーチ')?'orange.100':'gray.100'}>{slotMessage}</Text></Box>}
+      <HStack justify="center"><Button size="xs" isDisabled={slotSpinning||casinoSpinsLeft<=0} onClick={()=>setSlotBet(Math.max(20,slotBet-20))}>-</Button><Text color="yellow.300" fontWeight="900">{slotBet}円</Text><Button size="xs" isDisabled={slotSpinning||casinoSpinsLeft<=0||slotBet>=500} onClick={()=>setSlotBet(Math.min(500,slotBet+20))}>+</Button></HStack>
+      <HStack justify="center" spacing={2}>{slot.map((v,i)=><Center key={i} bg={slotWin?'yellow.900':'black'} border="2px solid" borderColor={slotWin?'yellow.300':slotSpinning?'purple.400':'whiteAlpha.200'} boxShadow={slotWin?'0 0 18px rgba(250,204,21,.85)':'inset 0 0 12px rgba(0,0,0,.7)'} animation={slotWin?'slotJackpot .28s ease-in-out infinite alternate':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'slotHeat .34s ease-in-out infinite, slotShake .22s ease-in-out infinite':undefined} rounded="lg" w="62px" h="62px" fontSize="2xl">{v}</Center>)}</HStack>
+      {slotMessage&&<Box px={3} py={2} rounded="lg" bg={slotWin?'yellow.900':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'red.900':'whiteAlpha.100'} border="1px solid" borderColor={slotWin?'yellow.300':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'orange.300':'whiteAlpha.200'} animation={slotWin?'slotJackpot .35s ease-in-out infinite alternate':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'slotHeat .34s ease-in-out infinite':undefined}><Text textAlign="center" fontSize={slotWin?'sm':'xs'} fontWeight="900" color={slotWin?'yellow.200':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'orange.100':'gray.100'}>{slotMessage}</Text></Box>}
       <Button colorScheme="purple" size="sm" isLoading={slotSpinning} loadingText="リール回転中…" onClick={()=>{
         if(casinoSpinsLeft<=0){playSfx('fail',soundOn);setSlotMessage('このカジノでは10回遊び終えました');show({...room,result:'この訪問での上限10回に到達',resultType:'neutral'});return;}
         if(s.money<slotBet||slotSpinning){playSfx('fail',soundOn);return;}
         setCasinoSpinsLeft(v=>Math.max(0,v-1));
-        const sy=['🔴','🟢','💎','🎡'];
-        // 指定された3つ揃い確率：ルビー8% / エメラルド5% / ダイヤ2% / ルーレット1%。
-        // 残り84%はハズレ。ハズレの一部だけ2リール同柄にしてリーチ演出を出す。
+        const sy=['🔴','🟢','💎','🎡','🍀','⚡'];
+        // 3つ揃い確率：ルビー8% / エメラルド5% / ダイヤ2% / ルーレット1% / 🍀2.5% / ⚡2.5%。
+        // 合計当選率21%。残り79%はハズレだが、一部をリーチにして期待感を演出する（当選率自体は変えない）。
         const roll=Math.random();
         let final:string[];
         if(roll<.08) final=['🔴','🔴','🔴'];
         else if(roll<.13) final=['🟢','🟢','🟢'];
         else if(roll<.15) final=['💎','💎','💎'];
         else if(roll<.16) final=['🎡','🎡','🎡'];
-        else if(Math.random()<.38){
+        else if(roll<.185) final=['🍀','🍀','🍀'];
+        else if(roll<.21) final=['⚡','⚡','⚡'];
+        else if(Math.random()<.55){
           const reachSymbol=pick(sy);
           final=[reachSymbol,reachSymbol,pick(sy.filter(v=>v!==reachSymbol))];
         }else{
           do{final=[pick(sy),pick(sy),pick(sy)];}while(final[0]===final[1]&&final[1]===final[2]);
         }
-        playSfx('casino',soundOn); setS(x=>({...x,money:x.money-slotBet})); setSlotSpinning(true); setSlotWin(false); setSlotMessage('3つのリールが回転中…'); setSlot(['🎰','🎰','🎰']);
+        playSfx('casino',soundOn); setS(x=>({...x,money:x.money-slotBet})); setSlotSpinning(true); setSlotWin(false); setSlotMessage('⚡ NEON CHARGE… リール始動！ ⚡'); setSlot(['🎰','🎰','🎰']);
         const timers=final.map((_,i)=>fastInterval(()=>setSlot(cur=>cur.map((v,j)=>j===i?pick(sy):v)),95));
         const isReach=final[0]===final[1];
-        const stops=[760,1480,isReach?2780:2280];
-        stops.forEach((ms,i)=>fastTimeout(()=>{window.clearInterval(timers[i]);setSlot(cur=>cur.map((v,j)=>j===i?final[i]:v));playSfx('slotStop',soundOn);if(i===0)setSlotMessage('1リール停止… 次は中央！');else if(i===1&&isReach){playSfx('jackpot',soundOn);setSlotMessage(`🔥 リーチ！ ${final[0]} ${final[1]} … 最終リールに注目！ 🔥`);}else if(i===1)setSlotMessage('2リール停止… 最終リールへ！');else setSlotMessage('3リール停止！ 判定中…');},ms));
+        const stops=[820,1640,isReach?3520:2520];
+        fastTimeout(()=>{setSlotMessage('✨ ネオンが加速… 第1停止！');},420);
+        stops.forEach((ms,i)=>fastTimeout(()=>{window.clearInterval(timers[i]);setSlot(cur=>cur.map((v,j)=>j===i?final[i]:v));playSfx('slotStop',soundOn);if(i===0)setSlotMessage('第1リール停止！ 中央リールへ…');else if(i===1&&isReach){playSfx('jackpot',soundOn);setSlotMessage(`🔥🔥 激熱リーチ！ ${final[0]} ${final[1]} … 最終リールが減速！ 🔥🔥`);}else if(i===1)setSlotMessage('第2リール停止！ 最終リールに注目…');else setSlotMessage('⚡ 3リール停止！ 運命の判定… ⚡');},ms));
+        if(isReach){
+          fastTimeout(()=>{playSfx('roulette',soundOn);setSlotMessage(`🔥 ${final[0]} ${final[1]} ── 止まれ…！ 最終リール超減速！`);},2380);
+          fastTimeout(()=>{playSfx('jackpot',soundOn);setSlotMessage('⚡⚡ ラスト1コマ…！ ⚡⚡');},3060);
+        }
         fastTimeout(()=>{
           let mult=0; let label='';
           if(final.every(v=>v==='🔴')){mult=5;label='ルビー';}
           if(final.every(v=>v==='🟢')){mult=10;label='エメラルド';}
           if(final.every(v=>v==='💎')){mult=30;label='ダイヤモンド';}
+          if(final.every(v=>v==='🍀')){
+            const gain=Math.floor(slotBet/10);
+            playSfx('jackpot',soundOn);setSlotWin(true);setSlotMessage(`🍀🍀🍀 LUCK JACKPOT！ 運気 +${gain}！ 🍀🍀🍀`);
+            setS(x=>({...x,luck:x.luck+gain}));
+            show({...room,result:`🍀揃い！ 運気 +${gain}`,resultType:'success'});
+            setSlotSpinning(false);fastTimeout(()=>setSlotWin(false),2400);return;
+          }
+          if(final.every(v=>v==='⚡')){
+            const gain=Math.floor(slotBet/20);
+            playSfx('jackpot',soundOn);setSlotWin(true);setSlotMessage(`⚡⚡⚡ ENERGY JACKPOT！ 残り回数 +${gain}！ ⚡⚡⚡`);
+            setS(x=>({...x,turnsLeft:x.turnsLeft+gain}));
+            show({...room,result:`⚡揃い！ 残り回数 +${gain}`,resultType:'success'});
+            setSlotSpinning(false);fastTimeout(()=>setSlotWin(false),2400);return;
+          }
           if(final.every(v=>v==='🎡')){
             playSfx('jackpot',soundOn);setSlotWin(true);
             setSlotMessage('🎡🎡🎡 ルーレット揃い！ 配当倍率を抽選中…');
@@ -1026,12 +1051,13 @@ export default function InfiniteElevator(){
           if(mult){playSfx('jackpot',soundOn);setSlotWin(true);setSlotMessage(`✨ ${label}が3つ揃った！ ${mult}倍！ ✨`);setS(x=>({...x,money:x.money+slotBet*mult}));show({...room,result:`${label}揃い！ ${mult}倍 / +${slotBet*mult}円`,resultType:'gold'});fastTimeout(()=>setSlotWin(false),2200);}
           else{playSfx('fail',soundOn);setSlotMessage('残念…今回は3つ揃わなかった');show({...room,result:'ハズレ… 次の勝負へ！',resultType:'neutral'});}
           setSlotSpinning(false);
-        },isReach?3040:2540);
+        },isReach?3820:2820);
       }} isDisabled={casinoSpinsLeft<=0}>スロットを回す</Button>
       <Box bg="blackAlpha.500" border="1px solid" borderColor="purple.500" rounded="xl" p={2.5}>
         <Text fontSize="11px" fontWeight="900" color="purple.200" mb={1.5} textAlign="center">🎰 配当表</Text>
         <Stack spacing={1}>
-          {[['🔴 🔴 🔴','ルビー揃い 8%','5倍','red.300'],['🟢 🟢 🟢','エメラルド揃い 5%','10倍','green.300'],['💎 💎 💎','ダイヤモンド揃い 2%','30倍','cyan.200'],['🎡 🎡 🎡','ルーレット揃い 1%','10〜50倍','yellow.200']].map(([icons,name,payout,color])=><Flex key={name as string} px={2} py={1} bg="whiteAlpha.100" rounded="md" align="center"><Text fontSize="11px" minW="82px">{icons}</Text><Text fontSize="9px" color="gray.200" flex="1">{name}</Text><Text fontSize="10px" fontWeight="900" color={color}>{payout}</Text></Flex>)}
+          {[['🔴 🔴 🔴','ルビー揃い 8%','5倍','red.300'],['🟢 🟢 🟢','エメラルド揃い 5%','10倍','green.300'],['💎 💎 💎','ダイヤモンド揃い 2%','30倍','cyan.200'],['🎡 🎡 🎡','ルーレット揃い 1%','10〜50倍','yellow.200'],['🍀 🍀 🍀','幸運揃い 2.5%','運気 +ベット÷10','green.200'],['⚡ ⚡ ⚡','回数揃い 2.5%','回数 +ベット÷20','orange.200']].map(([icons,name,payout,color])=><Flex key={name as string} px={2} py={1} bg="whiteAlpha.100" rounded="md" align="center"><Text fontSize="11px" minW="82px">{icons}</Text><Text fontSize="9px" color="gray.200" flex="1">{name}</Text><Text fontSize="10px" fontWeight="900" color={color}>{payout}</Text></Flex>)}
+          <Text mt={1.5} fontSize="9px" color="gray.400" textAlign="center">ベット：20〜500円 / 20円刻み（上限のみ500円）</Text>
         </Stack>
       </Box>
     </Stack>;
@@ -1143,10 +1169,12 @@ export default function InfiniteElevator(){
   const disabled=finalMode ? (moving||gameover||slotSpinning||bj.playing) : (moving||gameover||slotSpinning||bj.playing||s.inHell);
 
   const scoreHasSaveTarget=Boolean(scorePreview&&(scorePreview.monthly.eligible||scorePreview.alltime.eligible));
-  const scoreRegistrationDisabled=!newPersonalBest||scoreSubmitted||scoreSubmitting||scorePreviewLoading||Boolean(firebaseReady&&scorePreview&&!scoreHasSaveTarget);
+  // 登録可否は端末内の総合最高記録ではなく、月間/総合ランキングそれぞれの自己ベスト更新で判定する。
+  const scoreCanRegister=firebaseReady?scoreHasSaveTarget:newPersonalBest;
+  const scoreRegistrationDisabled=!scoreCanRegister||scoreSubmitted||scoreSubmitting||scorePreviewLoading;
   const handleButtonSound=(e:React.MouseEvent)=>{const el=e.target as HTMLElement;if(el.closest('button'))playSfx('click',soundOn);};
 
-  return <><style>{`@keyframes cathedralFlicker{0%,100%{opacity:.3}50%{opacity:.62}}@keyframes steelSweep{0%{transform:translateX(-160%)}100%{transform:translateX(160%)}}@keyframes elevatorAura{from{transform:scale(.9);opacity:.45}to{transform:scale(1.08);opacity:1}}@keyframes hypeBlink{0%,45%{opacity:1}46%,100%{opacity:.35}}@keyframes hellPulse{from{transform:scale(.9) rotate(-7deg)}to{transform:scale(1.10) rotate(7deg)}}@keyframes hellShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}@keyframes hellRing{0%{transform:scale(.55) rotate(0deg);opacity:.9}100%{transform:scale(1.55) rotate(220deg);opacity:0}}@keyframes revealPulse{from{transform:scale(.96);filter:brightness(.95)}to{transform:scale(1.06);filter:brightness(1.35)}}@keyframes ultimateWheel{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes floorTravel{0%{transform:translateY(26px) scale(.92);opacity:0}35%{opacity:1}70%{transform:translateY(-10px) scale(1.04);opacity:1}100%{transform:translateY(-34px) scale(1.08);opacity:0}}@keyframes floorLines{from{background-position:0 0}to{background-position:0 120px}}@keyframes warpSpin{0%{transform:rotate(0deg) scale(.85);filter:brightness(1)}50%{transform:rotate(180deg) scale(1.08);filter:brightness(1.8)}100%{transform:rotate(360deg) scale(.85);filter:brightness(1)}}@keyframes ultimateFlash{0%,100%{opacity:.45;filter:brightness(1)}50%{opacity:1;filter:brightness(1.8)}}@keyframes slotJackpot{from{transform:scale(.96);filter:brightness(.9)}to{transform:scale(1.04);filter:brightness(1.35)}}@keyframes reachPulse{from{transform:scale(.98);filter:brightness(1)}to{transform:scale(1.035);filter:brightness(1.45)}}@keyframes rareArrival{0%{opacity:0;transform:scale(.72)}45%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.24)}}@keyframes rareRing{0%{opacity:0;transform:scale(.35)}35%{opacity:.95}100%{opacity:0;transform:scale(1.65)}}@keyframes rareSpark{0%{opacity:0;transform:translateY(18px) scale(.6)}35%{opacity:1}100%{opacity:0;transform:translateY(-44px) scale(1.15)}}`}</style><Center h="100dvh" w="100vw" minH={0} p={0} overflow="hidden" bg="#020304">
+  return <><style>{`@keyframes cathedralFlicker{0%,100%{opacity:.3}50%{opacity:.62}}@keyframes steelSweep{0%{transform:translateX(-160%)}100%{transform:translateX(160%)}}@keyframes elevatorAura{from{transform:scale(.9);opacity:.45}to{transform:scale(1.08);opacity:1}}@keyframes hypeBlink{0%,45%{opacity:1}46%,100%{opacity:.35}}@keyframes hellPulse{from{transform:scale(.9) rotate(-7deg)}to{transform:scale(1.10) rotate(7deg)}}@keyframes hellShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}@keyframes hellRing{0%{transform:scale(.55) rotate(0deg);opacity:.9}100%{transform:scale(1.55) rotate(220deg);opacity:0}}@keyframes revealPulse{from{transform:scale(.96);filter:brightness(.95)}to{transform:scale(1.06);filter:brightness(1.35)}}@keyframes ultimateWheel{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes floorTravel{0%{transform:translateY(26px) scale(.92);opacity:0}35%{opacity:1}70%{transform:translateY(-10px) scale(1.04);opacity:1}100%{transform:translateY(-34px) scale(1.08);opacity:0}}@keyframes floorLines{from{background-position:0 0}to{background-position:0 120px}}@keyframes warpSpin{0%{transform:rotate(0deg) scale(.85);filter:brightness(1)}50%{transform:rotate(180deg) scale(1.08);filter:brightness(1.8)}100%{transform:rotate(360deg) scale(.85);filter:brightness(1)}}@keyframes ultimateFlash{0%,100%{opacity:.45;filter:brightness(1)}50%{opacity:1;filter:brightness(1.8)}}@keyframes slotJackpot{from{transform:scale(.96);filter:brightness(.9)}to{transform:scale(1.04);filter:brightness(1.35)}}@keyframes slotHeat{0%,100%{filter:brightness(1);box-shadow:0 0 8px rgba(168,85,247,.35)}50%{filter:brightness(1.7);box-shadow:0 0 28px rgba(244,63,94,.82)}}@keyframes slotShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-3px)}40%{transform:translateX(3px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@keyframes reachPulse{from{transform:scale(.98);filter:brightness(1)}to{transform:scale(1.035);filter:brightness(1.45)}}@keyframes rareArrival{0%{opacity:0;transform:scale(.72)}45%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.24)}}@keyframes rareRing{0%{opacity:0;transform:scale(.35)}35%{opacity:.95}100%{opacity:0;transform:scale(1.65)}}@keyframes rareSpark{0%{opacity:0;transform:translateY(18px) scale(.6)}35%{opacity:1}100%{opacity:0;transform:translateY(-44px) scale(1.15)}}`}</style><Center h="100dvh" w="100vw" minH={0} p={0} overflow="hidden" bg="#020304">
     <Box onClickCapture={handleButtonSound} w="100vw" maxW="100vw" h="100dvh" maxH="100dvh" bg="#06080a" borderRadius={0} overflow="hidden" position="relative" borderWidth={0} boxShadow="none">
       {menu&&<Flex position="absolute" inset={0} zIndex={40} bgImage={{base:`linear-gradient(180deg,rgba(0,0,0,.24) 0%,rgba(0,0,0,.10) 30%,rgba(2,3,4,.48) 56%,rgba(2,3,4,.84) 76%,#020304 100%), url("${menuVisualSrc}")`,lg:`linear-gradient(180deg,rgba(0,0,0,.18) 0%,rgba(0,0,0,.08) 26%,rgba(2,3,4,.38) 54%,rgba(2,3,4,.76) 78%,#020304 100%), url("${menuVisualSrcPc}")`}} bgSize="cover" bgRepeat="no-repeat" bgPosition={{base:'center center',lg:'center top'}} bgColor="#020304" direction="column" overflow="hidden">
         <Box position="absolute" inset={0} pointerEvents="none" bg="radial-gradient(circle at 50% 12%, rgba(255,255,255,.18), transparent 28%), linear-gradient(90deg,rgba(0,0,0,.52),transparent 18%,transparent 82%,rgba(0,0,0,.52))"/>
@@ -1257,7 +1285,7 @@ export default function InfiniteElevator(){
         </HelpSection>
         <HelpSection title="5. よくある部屋の要点">
           <Bullet><b>採掘場</b>：5つの岩から2つだけ選べます。最後に選ばなかった岩の中身も公開されます。</Bullet>
-          <Bullet><b>スロットカジノ</b>：1回の訪問につき最大10回まで。絵柄が揃うと倍率に応じた配当がもらえます。</Bullet>
+          <Bullet><b>スロットカジノ</b>：1回の訪問につき最大10回、ベットは20〜500円。🍀揃いで運気、⚡揃いで残り回数がベット額に応じて増えます。</Bullet>
           <Bullet><b>占い師の小部屋</b>：占い結果によって運気が上下します。</Bullet>
           <Bullet><b>運試しの祭壇</b>：祈る対象を1つ選び、30%で強力な加護を受けます。階数の加護に成功すると、移動先でも新しいイベントが発生します。</Bullet>
         </HelpSection>
@@ -1367,8 +1395,8 @@ export default function InfiniteElevator(){
             <Text fontSize="xs" color="gray.400">最終到達階数</Text>
             <Text fontSize="4xl" color="#eee9df" fontFamily="heading" fontWeight="black">{s.floor.toLocaleString()} 階</Text>
 
-            {newPersonalBest?<Box mt={3} p={3} textAlign="left" bg="rgba(73,28,34,.20)" border="1px solid rgba(180,74,82,.34)" borderRadius="8px">
-              <Text mb={2} fontSize="10px" color="#e8dcc6" fontWeight="900">自己最高記録を更新！ 今回スコアの暫定順位</Text>
+            {(newPersonalBest||scorePreviewLoading||scoreHasSaveTarget)?<Box mt={3} p={3} textAlign="left" bg="rgba(73,28,34,.20)" border="1px solid rgba(180,74,82,.34)" borderRadius="8px">
+              <Text mb={2} fontSize="10px" color="#e8dcc6" fontWeight="900">{newPersonalBest?'自己最高記録を更新！':'月間または総合ランキングの自己ベスト更新対象！'} 今回スコアの暫定順位</Text>
               {scorePreviewLoading&&<VStack py={3} spacing={2}><Progress w="100%" size="xs" isIndeterminate colorScheme="yellow"/><Text fontSize="10px" color="gray.400">月間・総合順位を確認中…</Text></VStack>}
               {!scorePreviewLoading&&scorePreviewError&&<Stack spacing={2}><Text fontSize="10px" color="red.200">{scorePreviewError}</Text><Button size="xs" variant="outline" colorScheme="yellow" onClick={()=>void refreshScorePreview(s.floor)}>順位を再確認</Button><Text fontSize="9px" color="gray.500">確認に失敗しても、必要なら下の登録ボタンから保存を試せます。</Text></Stack>}
               {!scorePreviewLoading&&scorePreview&&<SimpleGrid columns={2} spacing={2}>
@@ -1388,14 +1416,14 @@ export default function InfiniteElevator(){
             </Flex>
             <Text mt={1} fontSize="8px" color="gray.600">プレイ履歴はこの端末内に最大100件保存されます。</Text>
 
-            {newPersonalBest&&<HStack mt={3} align="stretch">
+            {scoreCanRegister&&<HStack mt={3} align="stretch">
               <Input value={nickname} onChange={e=>setNickname(Array.from(e.target.value).slice(0,12).join(''))} maxLength={12} isDisabled={scoreSubmitting||scoreSubmitted} placeholder="プレイヤー名（12文字まで）" textAlign="center"/>
               <Button minW="108px" colorScheme="yellow" onClick={submitScore} isDisabled={scoreRegistrationDisabled} isLoading={scoreSubmitting} loadingText="保存中">{scoreSubmitted?'登録済み':scorePreviewLoading?'順位確認中':firebaseReady&&scorePreview&&!scoreHasSaveTarget?'保存対象外':'ランキング登録'}</Button>
             </HStack>}
             {scoreSaveMessage&&<Text mt={2} fontSize="10px" color={scoreSubmitted?'green.200':rankingStatus==='error'?'red.200':'yellow.100'}>{scoreSaveMessage}</Text>}
             <HStack justify="space-between" mt={3} color="gray.400"><Text fontSize="xs">最終所持金: <b>{s.money.toLocaleString()}円</b></Text><Text fontSize="xs">最終運気: <b>{s.luck}</b></Text></HStack>
           </ModalBody>
-          <ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.28)" borderRadius="2px" _hover={{bg:'#351419',borderColor:'#8f3940'}} isDisabled={scoreSubmitting} onClick={()=>{setGameover(false);setMenu(true)}}>{scoreSubmitting?'保存完了までお待ちください':newPersonalBest&&!scoreSubmitted&&(!firebaseReady||Boolean(scorePreviewError)||scoreHasSaveTarget)?'登録せずメインメニューへ':'メインメニューへ'}</Button></ModalFooter>
+          <ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.28)" borderRadius="2px" _hover={{bg:'#351419',borderColor:'#8f3940'}} isDisabled={scoreSubmitting} onClick={()=>{setGameover(false);setMenu(true)}}>{scoreSubmitting?'保存完了までお待ちください':scoreCanRegister&&!scoreSubmitted?'登録せずメインメニューへ':'メインメニューへ'}</Button></ModalFooter>
         </ModalContent>
       </Modal>
     </Box>
