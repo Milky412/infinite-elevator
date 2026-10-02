@@ -12,7 +12,7 @@ import {
 import { auth, db, firebaseReady } from './firebase';
 
 export type BattleRole = 'host' | 'guest';
-export type BattleProgress = { floor:number; turns:number; finished:boolean };
+export type BattleProgress = { floor:number; turns:number; finished:boolean; roomTitle?:string; phase?:'ready'|'dialogue'|'moving'|'event'|'finished' };
 export type BattleRoom = {
   code:string;
   hostUid:string;
@@ -39,7 +39,7 @@ function cleanName(name:string){
 function makeCode(){
   return String(100+Math.floor(Math.random()*900));
 }
-const initialProgress:BattleProgress={floor:1,turns:10,finished:false};
+const initialProgress:BattleProgress={floor:1,turns:10,finished:false,roomTitle:'エレベーターホール',phase:'ready'};
 
 export async function createBattleRoom(name:string){
   if(!db) throw new Error('Firestore is not configured');
@@ -96,7 +96,7 @@ export async function updateBattleProgress(code:string,role:BattleRole,progress:
   if(!snap.exists()) return; const room=snap.data() as BattleRoom;
   if((role==='host'&&room.hostUid!==user.uid)||(role==='guest'&&room.guestUid!==user.uid)) return;
   const field=role==='host'?'hostProgress':'guestProgress';
-  const patch:any={[field]:{floor:Math.max(1,Math.floor(progress.floor)),turns:Math.max(0,Math.floor(progress.turns)),finished:Boolean(progress.finished)},updatedAt:serverTimestamp()};
+  const patch:any={[field]:{floor:Math.max(1,Math.floor(progress.floor)),turns:Math.max(0,Math.floor(progress.turns)),finished:Boolean(progress.finished),roomTitle:(progress.roomTitle||'エレベーターホール').slice(0,40),phase:progress.finished?'finished':(progress.phase||'ready')},updatedAt:serverTimestamp()};
   const other=role==='host'?room.guestProgress:room.hostProgress;
   if(progress.finished&&other?.finished) patch.status='finished';
   await updateDoc(ref,patch);

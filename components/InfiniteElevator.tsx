@@ -539,9 +539,10 @@ export default function InfiniteElevator(){
   },[room.kind,room.title]);
   useEffect(()=>{
     if(!battleActive||battleRunFinished||!battleCode||!battleRole)return;
-    const timer=window.setTimeout(()=>{void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:s.turnsLeft,finished:false});},320);
+    const phase:'ready'|'dialogue'|'moving'|'event' = roomIntro?'dialogue':(moving||floorTransition.show||overlay.show)?'moving':eventAnimating?'event':'ready';
+    const timer=window.setTimeout(()=>{void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:s.turnsLeft,finished:false,roomTitle:room.title,phase});},320);
     return ()=>window.clearTimeout(timer);
-  },[battleActive,battleRunFinished,battleCode,battleRole,s.floor,s.turnsLeft]);
+  },[battleActive,battleRunFinished,battleCode,battleRole,s.floor,s.turnsLeft,room.title,roomIntro,moving,eventAnimating,floorTransition.show,overlay.show]);
   useEffect(()=>{
     if(!battleActive||!battleRunFinished||!battleRoom||!battleRole||battleResult.isOpen)return;
     const me=battleRole==='host'?battleRoom.hostProgress:battleRoom.guestProgress;
@@ -657,7 +658,7 @@ export default function InfiniteElevator(){
     if(battleActive&&battleCode&&battleRole){
       // 最終操作確定後に完了を送信。結果画面は両者の完了を受信してから開く。
       setBattleRunFinished(true);
-      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true});
+      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true,roomTitle:room.title,phase:'finished'});
       return;
     }
     setGameover(true);
@@ -1295,12 +1296,24 @@ export default function InfiniteElevator(){
         {battleActive&&battleRoom&&battleRole&&(()=>{
           const opp=battleRole==='host'?battleRoom.guestProgress:battleRoom.hostProgress;
           const oppName=battleRole==='host'?battleRoom.guestName:battleRoom.hostName;
-          const stateLabel=opp?.finished?'操作完了':'プレイ中';
-          return <Box position="absolute" top={{base:'186px',md:'12px'}} right={{base:'8px',md:'12px'}} zIndex={27} w={{base:'132px',md:'190px'}} px={{base:2,md:3}} py={{base:2,md:2.5}} bg="rgba(28,7,11,.90)" backdropFilter="blur(10px)" border="1px solid rgba(235,112,122,.62)" borderRadius="10px" boxShadow="0 12px 30px rgba(0,0,0,.48)" pointerEvents="none">
-            <HStack spacing={1.5} mb={1.5}><Badge colorScheme="red" fontSize={{base:'6px',md:'7px'}}>RIVAL LIVE</Badge><Box w="6px" h="6px" rounded="full" bg={opp?.finished?'green.300':'red.300'} boxShadow={opp?.finished?'0 0 8px #68d391':'0 0 8px #fc8181'}/></HStack>
-            <Text fontSize={{base:'8px',md:'10px'}} color="whiteAlpha.800" fontWeight="800" noOfLines={1}>{oppName||'相手'}</Text>
-            <HStack mt={1} justify="space-between" align="end"><Box><Text fontSize="7px" color="gray.400">現在階</Text><Text fontFamily="mono" fontSize={{base:'17px',md:'22px'}} lineHeight="1" color="yellow.100" fontWeight="900">{opp?.floor||1}F</Text></Box><Box textAlign="right"><Text fontSize="7px" color="gray.400">残り</Text><Text fontFamily="mono" fontSize={{base:'13px',md:'16px'}} color="cyan.100" fontWeight="900">{opp?.turns??10}</Text></Box></HStack>
-            <Text mt={1.5} fontSize={{base:'7px',md:'8px'}} color={opp?.finished?'green.200':'red.100'} fontWeight="800">{stateLabel}</Text>
+          const oppStage=stageCatalog.find(stage=>stage.title===(opp?.roomTitle||'エレベーターホール'));
+          const oppImage=oppStage?.image?`${process.env.NEXT_PUBLIC_BASE_PATH||''}/${oppStage.image}`:null;
+          const phaseLabel=opp?.finished?'操作完了':opp?.phase==='dialogue'?'会話中':opp?.phase==='moving'?'移動中':opp?.phase==='event'?'イベント中':'選択・操作中';
+          return <Box position="absolute" top={{base:'186px',md:'12px'}} right={{base:'8px',md:'12px'}} zIndex={27} w={{base:'150px',md:'260px'}} h={{base:'96px',md:'152px'}} overflow="hidden" bg="#050608" bgImage={oppImage?`linear-gradient(180deg,rgba(0,0,0,.08),rgba(0,0,0,.42)), url("${oppImage}")`:oppStage?.bg} bgSize="cover" bgPosition="center" border="2px solid rgba(235,112,122,.72)" borderRadius="10px" boxShadow="0 14px 34px rgba(0,0,0,.58),0 0 18px rgba(239,68,68,.18)" pointerEvents="none">
+            <Box position="absolute" inset={0} bg="linear-gradient(180deg,rgba(0,0,0,.58) 0%,transparent 34%,rgba(0,0,0,.78) 100%)"/>
+            <HStack position="absolute" top={{base:1,md:2}} left={{base:1.5,md:2}} right={{base:1.5,md:2}} justify="space-between" spacing={1}>
+              <HStack spacing={1} minW={0}><Box w="6px" h="6px" rounded="full" bg={opp?.finished?'green.300':'red.300'} boxShadow={opp?.finished?'0 0 8px #68d391':'0 0 8px #fc8181'}/><Text fontSize={{base:'7px',md:'9px'}} color="white" fontWeight="900" noOfLines={1}>{oppName||'相手'}</Text></HStack>
+              <Badge fontSize={{base:'5px',md:'7px'}} colorScheme="red">LIVE</Badge>
+            </HStack>
+            <Center position="absolute" inset={{base:'22px 5px 24px',md:'34px 10px 34px'}} flexDir="column" textAlign="center">
+              <Text fontSize={{base:'7px',md:'10px'}} color="whiteAlpha.800" fontWeight="800" textShadow="0 2px 6px #000" noOfLines={1}>{opp?.roomTitle||'エレベーターホール'}</Text>
+              <Text mt={{base:.5,md:1}} fontFamily="mono" fontSize={{base:'20px',md:'34px'}} lineHeight="1" color="yellow.100" fontWeight="900" textShadow="0 2px 9px #000">{opp?.floor||1}F</Text>
+            </Center>
+            <HStack position="absolute" left={{base:1.5,md:2}} right={{base:1.5,md:2}} bottom={{base:1,md:2}} justify="space-between" align="center">
+              <Text fontSize={{base:'6px',md:'8px'}} color={opp?.finished?'green.200':'cyan.100'} fontWeight="900">{phaseLabel}</Text>
+              <Badge bg="rgba(0,0,0,.62)" color="cyan.100" border="1px solid rgba(103,232,249,.32)" fontSize={{base:'6px',md:'8px'}}>残り {opp?.turns??10}</Badge>
+            </HStack>
+            {battleRunFinished&&!opp?.finished&&<Center position="absolute" inset={0} bg="rgba(0,0,0,.64)" flexDir="column"><Text fontSize={{base:'7px',md:'10px'}} color="white" fontWeight="900">相手の最終操作を待機中</Text><Text mt={1} fontSize={{base:'6px',md:'8px'}} color="whiteAlpha.700">結果はまだ表示されません</Text></Center>}
           </Box>;
         })()}
 

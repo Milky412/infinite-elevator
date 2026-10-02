@@ -586,3 +586,8 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - Battle result opens only after Firestore reports both players' final operations as finished.
 - While waiting, the bottom button is locked and shows "相手の終了を待っています…".
 - Room codes are generated as guaranteed 3-digit values from 100 to 999.
+
+## v96 対戦ミニ画面
+- 対戦中の右上表示を数値ログカードから、相手の現在ステージ背景を使ったミニゲーム画面へ変更。
+- 相手の現在階・残り回数・部屋名・会話中/移動中/イベント中/操作中/終了をリアルタイム同期。
+- 自分が先に終了した場合は、相手の最終操作完了までミニ画面上で待機表示し、両者完了後のみ結果を表示。
