@@ -37,18 +37,21 @@ function cleanName(name:string){
   return value||'名無しの登山者';
 }
 function makeCode(){
-  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let out=''; for(let i=0;i<6;i++) out+=chars[Math.floor(Math.random()*chars.length)];
-  return out;
+  return String(Math.floor(Math.random()*1000)).padStart(3,'0');
 }
 const initialProgress:BattleProgress={floor:1,turns:10,finished:false};
 
 export async function createBattleRoom(name:string){
   if(!db) throw new Error('Firestore is not configured');
   const user=await ensureUser();
-  for(let attempt=0;attempt<8;attempt++){
+  for(let attempt=0;attempt<20;attempt++){
     const code=makeCode(); const ref=doc(db,'battleRooms',code); const snap=await getDoc(ref);
-    if(snap.exists()) continue;
+    if(snap.exists()){
+      const existing=snap.data() as BattleRoom;
+      const createdAtMs=(existing.createdAt as any)?.toMillis?.() ?? Date.now();
+      const reusable=existing.status==='finished'||existing.status==='cancelled'||Date.now()-createdAtMs>2*60*60*1000;
+      if(!reusable) continue;
+    }
     const room:Omit<BattleRoom,'code'>={
       hostUid:user.uid,hostName:cleanName(name),guestUid:null,guestName:null,status:'waiting',
       hostProgress:{...initialProgress},guestProgress:{...initialProgress},createdAt:serverTimestamp(),updatedAt:serverTimestamp(),
@@ -61,7 +64,7 @@ export async function createBattleRoom(name:string){
 export async function joinBattleRoom(codeInput:string,name:string){
   if(!db) throw new Error('Firestore is not configured');
   const user=await ensureUser(); const code=codeInput.trim().toUpperCase();
-  if(!/^[A-Z2-9]{6}$/.test(code)) throw new Error('6桁のルームコードを入力してください');
+  if(!/^\d{3}$/.test(code)) throw new Error('3桁のルームコードを入力してください');
   const ref=doc(db,'battleRooms',code);
   await runTransaction(db,async tx=>{
     const snap=await tx.get(ref); if(!snap.exists()) throw new Error('ルームが見つかりません');

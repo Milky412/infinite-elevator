@@ -568,8 +568,13 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 ## v92 - Item details + online battle
 - Gameplay item detail modal now shows a larger readable description, item category, passive/consumable behavior, and gem sale totals.
 - Added 2-player online room-code battle using Firebase anonymous auth + Firestore.
-- Create a 6-character room code, share it with another device, and start automatically when the guest joins.
+- Create a 3-digit numeric room code, share it with another device, and start automatically when the guest joins. Finished/cancelled rooms and rooms older than 2 hours can be recycled so the 3-digit code pool does not fill up permanently.
 - Both players use the normal game rules starting from 10 turns. The higher final floor wins.
 - During battle, opponent floor / remaining turns / finish status are shown in the HUD.
 - Battle results wait for the opponent, but the local player can leave the waiting screen if the opponent disconnects.
 - `firestore.rules` now includes `battleRooms`; deploy the updated rules before using online battle.
+
+## v93 - 3-digit battle room codes
+- Online battle room codes are now 3 numeric digits (`000`-`999`).
+- Join input accepts digits only and requires exactly 3 digits.
+- Finished/cancelled rooms and rooms older than 2 hours can be reused to avoid exhausting the smaller code space.

@@ -61,7 +61,10 @@ service cloud.firestore {
       allow update: if request.auth != null
         && (resource.data.hostUid == request.auth.uid
           || resource.data.guestUid == request.auth.uid
-          || (resource.data.guestUid == null && request.resource.data.guestUid == request.auth.uid));
+          || (resource.data.guestUid == null && request.resource.data.guestUid == request.auth.uid)
+          || resource.data.status == 'finished'
+          || resource.data.status == 'cancelled'
+          || (resource.data.createdAt is timestamp && resource.data.createdAt < request.time - duration.value(2, 'h')));
       allow delete: if request.auth != null && resource.data.hostUid == request.auth.uid;
     }
 
