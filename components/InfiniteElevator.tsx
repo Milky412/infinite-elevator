@@ -15,6 +15,7 @@ import type { Item, ItemId, Room, State } from '../lib/types';
 import { firebaseReady } from '../lib/firebase';
 import { getCurrentMonthKey, getCurrentMonthLabel, loadRankingView, previewRankings, submitRankings, type MyRankingResult, type RankingEntry, type RankingScope, type ScorePreviewBundle } from '../lib/leaderboard';
 import { appendPlayHistory, getLocalHistorySummary, getOrCreatePlayerId, loadPlayHistory } from '../lib/localProfile';
+import { cancelBattleRoom, createBattleRoom, joinBattleRoom, subscribeBattleRoom, updateBattleProgress, type BattleRole, type BattleRoom } from '../lib/battle';
 
 const tierMeta = [
   {name:'Tier 1 Common', bg:'radial-gradient(circle at center, rgba(14,165,233,.15), rgba(15,23,42,.95))', color:'cyan.300'},
@@ -442,9 +443,19 @@ export default function InfiniteElevator(){
   const [gameSpeed,setGameSpeed]=useState<1|2>(1);
   const fastTimeout=(fn:()=>void,ms:number)=>window.setTimeout(fn,ms/gameSpeed);
   const fastInterval=(fn:()=>void,ms:number)=>window.setInterval(fn,ms/gameSpeed);
-  const rules=useDisclosure(), guide=useDisclosure(), itemGuide=useDisclosure(), rank=useDisclosure(), stagePreview=useDisclosure(), inventoryPanel=useDisclosure(), logPanel=useDisclosure(), nameEdit=useDisclosure(), historyModal=useDisclosure(), resetRecords=useDisclosure();
+  const rules=useDisclosure(), guide=useDisclosure(), itemGuide=useDisclosure(), rank=useDisclosure(), stagePreview=useDisclosure(), inventoryPanel=useDisclosure(), logPanel=useDisclosure(), nameEdit=useDisclosure(), historyModal=useDisclosure(), resetRecords=useDisclosure(), battleLobby=useDisclosure(), battleResult=useDisclosure();
   const [previewStage,setPreviewStage]=useState<StageCatalogEntry|null>(null);
   const [statusDetail,setStatusDetail]=useState<'turns'|'luck'|'money'|null>(null);
+  const [battleCodeInput,setBattleCodeInput]=useState('');
+  const [battleCode,setBattleCode]=useState('');
+  const [battleRole,setBattleRole]=useState<BattleRole|null>(null);
+  const [battleRoom,setBattleRoom]=useState<BattleRoom|null>(null);
+  const [battleBusy,setBattleBusy]=useState(false);
+  const [battleError,setBattleError]=useState('');
+  const [battleActive,setBattleActive]=useState(false);
+  const [battleRunFinished,setBattleRunFinished]=useState(false);
+  const battleStartedRef=useRef(false);
+  const battleUnsubRef=useRef<null|(()=>void)>(null);
   const menuVisualSrc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-v45.png`;
   const menuVisualSrcPc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-pc-v58.png`;
 
@@ -465,6 +476,8 @@ export default function InfiniteElevator(){
       setRankingStatus('connecting');
     }
   },[]);
+
+  useEffect(()=>()=>{battleUnsubRef.current?.();battleUnsubRef.current=null;},[]);
 
   const loadRankingMode=async(mode:RankingScope, force=false)=>{
     setRankingMode(mode);
@@ -524,6 +537,12 @@ export default function InfiniteElevator(){
   useEffect(()=>{
     if(room.kind!=='vending') setVendingFeedback(null);
   },[room.kind,room.title]);
+  useEffect(()=>{
+    if(!battleActive||battleRunFinished||!battleCode||!battleRole)return;
+    const timer=window.setTimeout(()=>{void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:s.turnsLeft,finished:false});},320);
+    return ()=>window.clearTimeout(timer);
+  },[battleActive,battleRunFinished,battleCode,battleRole,s.floor,s.turnsLeft]);
+
   const log=(m:string)=>setS(x=>({...x,logs:[m,...x.logs]}));
   const patch=(p:Partial<State>|((current:State)=>Partial<State>))=>setS(current=>({...current,...(typeof p==='function'?p(current):p)}));
   const addItem=(item:Item)=>{
@@ -591,7 +610,32 @@ export default function InfiniteElevator(){
     }
   };
 
-  const start=()=>{playSfx('start',soundOn);runRecordedRef.current=false;setNewPersonalBest(false);setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);setRoomIntro(false);scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setS({...baseState,highScore:s.highScore});setMenu(false);setGameover(false);setDoors(true);setRoom({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});};
+  const resetRunCore=()=>{playSfx('start',soundOn);runRecordedRef.current=false;setNewPersonalBest(false);setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);setRoomIntro(false);scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setS({...baseState,highScore:s.highScore});setMenu(false);setGameover(false);setDoors(true);setRoom({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});};
+  const clearBattleSession=()=>{battleUnsubRef.current?.();battleUnsubRef.current=null;setBattleCode('');setBattleRole(null);setBattleRoom(null);setBattleActive(false);setBattleRunFinished(false);battleStartedRef.current=false;};
+  const start=()=>{clearBattleSession();resetRunCore();};
+  const startBattleRun=()=>{setBattleActive(true);setBattleRunFinished(false);resetRunCore();};
+  const watchBattle=(code:string,role:BattleRole)=>{
+    battleUnsubRef.current?.();
+    battleUnsubRef.current=subscribeBattleRoom(code,room=>{
+      setBattleRoom(room);
+      if(!room){setBattleError('対戦ルームとの接続が切れました。');return;}
+      if(room.status==='playing'&&!battleStartedRef.current){battleStartedRef.current=true;setBattleRole(role);setBattleCode(code);battleLobby.onClose();startBattleRun();}
+    });
+  };
+  const createBattle=async()=>{
+    if(!firebaseReady){setBattleError('オンライン対戦にはFirebase設定が必要です。');return;}
+    setBattleBusy(true);setBattleError('');
+    try{const result=await createBattleRoom(nickname);setBattleCode(result.code);setBattleRole(result.role);watchBattle(result.code,result.role);}
+    catch(e){setBattleError(e instanceof Error?e.message:'ルーム作成に失敗しました');}
+    finally{setBattleBusy(false);}
+  };
+  const joinBattle=async()=>{
+    if(!firebaseReady){setBattleError('オンライン対戦にはFirebase設定が必要です。');return;}
+    setBattleBusy(true);setBattleError('');
+    try{const result=await joinBattleRoom(battleCodeInput,nickname);setBattleCode(result.code);setBattleRole(result.role);watchBattle(result.code,result.role);}
+    catch(e){setBattleError(e instanceof Error?e.message:'ルーム参加に失敗しました');}
+    finally{setBattleBusy(false);}
+  };
   const end=()=>{
     playSfx('gameover',soundOn);
     scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setAtmDeposit(0);setAtmInput('');
@@ -603,13 +647,16 @@ export default function InfiniteElevator(){
       setLocalPlayHistory(history);
       setLocalHistorySummary(getLocalHistorySummary(history));
     }
+    setS(x=>{const h=Math.max(x.highScore,x.floor); localStorage.setItem('infinite_elevator_highscore',String(h)); return {...x,highScore:h};});
+    if(battleActive&&battleCode&&battleRole){
+      setBattleRunFinished(true);battleResult.onOpen();
+      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true});
+      return;
+    }
     setGameover(true);
-    // 月間ベストは端末内の総合最高記録を超えていなくても更新できるため、
-    // Firebase利用時は毎回ランキング側の自己ベストを確認する。
     if(firebaseReady){void refreshScorePreview(s.floor);}
     else if(beatHighScore){void refreshScorePreview(s.floor);}
     else{setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);}
-    setS(x=>{const h=Math.max(x.highScore,x.floor); localStorage.setItem('infinite_elevator_highscore',String(h)); return {...x,highScore:h};});
   };
 
   const triggerRoom=(forcedTier?:number,forcedType?:string)=>{
@@ -1196,7 +1243,7 @@ export default function InfiniteElevator(){
             <Center>
               <Button w="100%" maxW="280px" h="56px" bg="linear-gradient(180deg,#17191c,#090a0c)" color="#f1eee6" border="1px solid rgba(232,229,220,.46)" borderRadius="2px" fontFamily="heading" letterSpacing=".16em" fontSize="md" leftIcon={<FaPlay/>} boxShadow="inset 0 1px rgba(255,255,255,.06),0 10px 28px rgba(0,0,0,.55)" _hover={{bg:'linear-gradient(180deg,#3a171b,#12090b)',borderColor:'#b8565c',color:'white'}} _active={{transform:'translateY(1px)',bg:'#18090c'}} onClick={start}>ゲームを始める</Button>
             </Center>
-            <SimpleGrid mt={2.5} columns={2} spacing={{base:1.5,lg:2}}>{[[FaRankingStar,'ランキング',openRanking],[FaCircleQuestion,'ルール説明',rules.onOpen],[FaBookOpen,'ステージ図鑑',guide.onOpen],[FaGem,'アイテム図鑑',itemGuide.onOpen]].map(([ic,label,fn]:any)=><Button key={label} size="sm" minH="42px" bg="rgba(7,8,10,.78)" color="rgba(237,234,225,.84)" border="1px solid rgba(180,184,186,.24)" borderRadius="2px" leftIcon={<Icon as={ic}/>} fontFamily="heading" fontSize="11px" letterSpacing=".08em" _hover={{bg:'rgba(54,18,22,.88)',borderColor:'rgba(174,66,74,.75)',color:'white'}} onClick={fn}>{label}</Button>)}</SimpleGrid>
+            <SimpleGrid mt={2.5} columns={2} spacing={{base:1.5,lg:2}}>{[[FaRankingStar,'ランキング',openRanking],[FaBolt,'オンライン対戦',()=>{setBattleError('');setBattleCodeInput('');battleLobby.onOpen();}],[FaCircleQuestion,'ルール説明',rules.onOpen],[FaBookOpen,'ステージ図鑑',guide.onOpen],[FaGem,'アイテム図鑑',itemGuide.onOpen]].map(([ic,label,fn]:any)=><Button key={label} size="sm" minH="42px" bg="rgba(7,8,10,.78)" color="rgba(237,234,225,.84)" border="1px solid rgba(180,184,186,.24)" borderRadius="2px" leftIcon={<Icon as={ic}/>} fontFamily="heading" fontSize="11px" letterSpacing=".08em" _hover={{bg:'rgba(54,18,22,.88)',borderColor:'rgba(174,66,74,.75)',color:'white'}} onClick={fn}>{label}</Button>)}</SimpleGrid>
           </Box>
         </Flex>
       </Flex>}
@@ -1230,6 +1277,7 @@ export default function InfiniteElevator(){
               <Button h="28px" size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={logPanel.onOpen}>ログ</Button>
               {(s.ringBuff.active||s.mirrorMultiplier>1||s.partySet)&&<HStack spacing={1} flexWrap="wrap">{s.ringBuff.active&&<Badge fontSize="7px" colorScheme="green">指輪+{s.ringBuff.amount} / 残り{s.ringBuff.turns}</Badge>}{s.mirrorMultiplier>1&&<Badge fontSize="7px" colorScheme="cyan">鏡×{s.mirrorMultiplier}</Badge>}{s.partySet&&<Badge fontSize="7px" colorScheme="pink">演出UP</Badge>}</HStack>}
             </HStack>
+            {battleActive&&battleRoom&&battleRole&&(()=>{const opp=battleRole==='host'?battleRoom.guestProgress:battleRoom.hostProgress;const oppName=battleRole==='host'?battleRoom.guestName:battleRoom.hostName;return <Flex px={2} py={1.5} align="center" justify="space-between" bg="rgba(82,25,32,.48)" border="1px solid rgba(218,112,120,.34)" borderRadius="7px"><HStack spacing={1.5} minW={0}><Badge colorScheme="red" fontSize="7px">ONLINE BATTLE</Badge><Text fontSize="9px" color="whiteAlpha.800" noOfLines={1}>相手：{oppName||'接続待ち'}</Text></HStack><HStack spacing={2} flexShrink={0}><Text fontFamily="mono" fontSize="10px" color="yellow.100" fontWeight="900">{opp?.floor||1}F</Text><Text fontSize="8px" color="gray.300">残り {opp?.turns??10}</Text>{opp?.finished&&<Badge colorScheme="green" fontSize="7px">FINISH</Badge>}</HStack></Flex>;})()}
             <Box w="100%" overflowX="auto" overflowY="hidden" sx={{WebkitOverflowScrolling:'touch'}}>
               <HStack spacing={1.5} justify="flex-start" minW="max-content" pb={.5}>
                 {s.items.length===0?<Text fontSize="8px" color="gray.500" px={1}>所持アイテムなし</Text>:s.items.map((it,i)=>{const pal=itemPalette(it);return <Button key={`${it.id}-${i}`} h="32px" minW="auto" px={2} flexShrink={0} justifyContent="flex-start" bg={pal.bg} color={pal.text} border="1px solid" borderColor={pal.border} borderRadius="6px" _hover={{filter:'brightness(1.12)'}} onClick={()=>setSelected(i)}><HStack spacing={1.5}><Icon as={it.icon||FaGift} boxSize={3} color={pal.icon}/><Text fontSize="8px" fontWeight="900" whiteSpace="nowrap">{it.name}{it.type==='gem'?` ×${it.count||1}`:''}</Text></HStack></Button>})}
@@ -1259,6 +1307,28 @@ export default function InfiniteElevator(){
 
         {!roomIntro&&<Box position="absolute" left={{base:2,md:'12%'}} right={{base:2,md:'12%'}} bottom={{base:2,md:3}} bg="rgba(3,4,6,.72)" backdropFilter="blur(9px)" p={{base:1.5,lg:2}} border="1px solid" borderColor="rgba(205,207,205,.22)" borderRadius="10px" zIndex={22}><Center><Button w="100%" maxW={{base:'100%',lg:'720px'}} h={{base:'50px',lg:'58px'}} bg={finalMode?"linear-gradient(180deg,#5b171e,#1e090c)":"linear-gradient(180deg,#1c1f23,#090a0c)"} color="#f1eee6" fontFamily="heading" letterSpacing=".10em" fontSize="md" fontWeight="800" textShadow="0 2px 5px #000" border="1px solid" borderColor={finalMode?"#a44850":"rgba(226,224,216,.42)"} borderRadius="2px" boxShadow={finalMode?"0 0 20px rgba(130,28,36,.30),inset 0 1px rgba(255,255,255,.05)":"0 8px 20px rgba(0,0,0,.50),inset 0 1px rgba(255,255,255,.05)"} _hover={{bg:finalMode?'#6d1c24':'#272a2e',borderColor:finalMode?'#cf666e':'#d9d5ca',color:'white'}} _active={{transform:'translateY(1px)',bg:'#0a0b0d'}} _disabled={{opacity:.48,color:'whiteAlpha.700',cursor:'not-allowed'}} leftIcon={finalMode?undefined:<FaArrowUp/>} isDisabled={disabled||eventAnimating||floorTransition.show||overlay.show} onClick={()=>{if(finalMode)end();else press();}}>{finalMode?'ゲームを終了する':'ボタンを押す'}</Button></Center></Box>}
       </Flex>
+
+      <Modal isOpen={battleLobby.isOpen} onClose={()=>{if(!battleCode){battleLobby.onClose();setBattleError('');}}} closeOnOverlayClick={!battleCode} isCentered>
+        <ModalOverlay bg="rgba(0,0,0,.84)" backdropFilter="blur(7px)"/>
+        <ModalContent bg="linear-gradient(180deg,#171a20,#07080a)" maxW="390px" border="1px solid rgba(218,216,208,.28)" borderRadius="8px">
+          <ModalHeader fontFamily="heading" color="#eee9df">オンライン対戦</ModalHeader>
+          <ModalBody><Stack spacing={3}>
+            <Text fontSize="11px" color="gray.300" lineHeight="1.8">2人で通常ルールを初期10回から同時にプレイし、最終到達階が高い方の勝利です。ルームコードを相手に共有してください。</Text>
+            {battleCode?<Box p={4} textAlign="center" bg="rgba(82,25,32,.36)" border="1px solid rgba(218,112,120,.42)" borderRadius="8px"><Text fontSize="9px" color="gray.400">ROOM CODE</Text><Text mt={1} fontFamily="mono" fontSize="3xl" letterSpacing=".18em" color="yellow.100" fontWeight="900">{battleCode}</Text><Text mt={2} fontSize="10px" color="gray.300">相手の参加を待っています…</Text></Box>:<><Button h="48px" colorScheme="red" isLoading={battleBusy} onClick={()=>void createBattle()}>ルームを作成</Button><Divider borderColor="whiteAlpha.200"/><Text fontSize="10px" color="gray.400" textAlign="center">またはルームコードで参加</Text><Input value={battleCodeInput} onChange={e=>setBattleCodeInput(e.target.value.toUpperCase().replace(/[^A-Z2-9]/g,'').slice(0,6))} maxLength={6} placeholder="6桁コード" textAlign="center" fontFamily="mono" letterSpacing=".16em"/><Button variant="outline" colorScheme="yellow" isLoading={battleBusy} isDisabled={battleCodeInput.length!==6} onClick={()=>void joinBattle()}>参加する</Button></>}
+            {battleError&&<Text fontSize="10px" color="red.200" textAlign="center">{battleError}</Text>}
+          </Stack></ModalBody>
+          <ModalFooter>{battleCode?<Button w="100%" variant="outline" colorScheme="red" onClick={()=>{void cancelBattleRoom(battleCode);clearBattleSession();battleLobby.onClose();}}>対戦をキャンセル</Button>:<Button w="100%" variant="ghost" onClick={battleLobby.onClose}>閉じる</Button>}</ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={battleResult.isOpen} onClose={()=>{}} closeOnOverlayClick={false} isCentered>
+        <ModalOverlay bg="rgba(0,0,0,.86)" backdropFilter="blur(7px)"/>
+        <ModalContent bg="linear-gradient(180deg,#171a20,#07080a)" maxW="400px" border="1px solid rgba(218,216,208,.28)" borderRadius="8px">
+          <ModalHeader textAlign="center" fontFamily="heading" color="#eee9df">オンライン対戦結果</ModalHeader>
+          <ModalBody>{battleRoom&&battleRole&&(()=>{const me=battleRole==='host'?battleRoom.hostProgress:battleRoom.guestProgress;const opp=battleRole==='host'?battleRoom.guestProgress:battleRoom.hostProgress;const oppName=battleRole==='host'?battleRoom.guestName:battleRoom.hostName;const done=Boolean(me?.finished&&opp?.finished);const result=!done?'WAIT':me.floor>opp.floor?'WIN':me.floor<opp.floor?'LOSE':'DRAW';return <Stack spacing={3}><SimpleGrid columns={2} spacing={2}><Box p={3} bg="whiteAlpha.050" borderRadius="8px" textAlign="center"><Text fontSize="9px" color="gray.400">あなた</Text><Text fontSize="2xl" fontWeight="900" color="yellow.100">{me?.floor||s.floor}F</Text></Box><Box p={3} bg="whiteAlpha.050" borderRadius="8px" textAlign="center"><Text fontSize="9px" color="gray.400">{oppName||'相手'}</Text><Text fontSize="2xl" fontWeight="900" color="cyan.100">{opp?.floor||1}F</Text></Box></SimpleGrid><Text textAlign="center" fontFamily="heading" fontSize="2xl" fontWeight="900" color={result==='WIN'?'yellow.200':result==='LOSE'?'red.200':'#eee9df'}>{result==='WAIT'?'相手の終了を待っています…':result==='WIN'?'YOU WIN!':result==='LOSE'?'YOU LOSE':'DRAW'}</Text></Stack>;})()}</ModalBody>
+          <ModalFooter><Button w="100%" onClick={()=>{battleResult.onClose();clearBattleSession();setMenu(true);}}>{battleRoom&&battleRole&&!(battleRoom.hostProgress.finished&&battleRoom.guestProgress.finished)?'相手待ちをやめてメインメニューへ':'メインメニューへ'}</Button></ModalFooter>
+        </ModalContent>
+      </Modal>
 
       <Modal isOpen={statusDetail!==null} onClose={()=>setStatusDetail(null)} isCentered size="xs"><ModalOverlay bg="rgba(0,0,0,.62)" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,rgba(18,21,25,.98),rgba(5,7,9,.99))" maxW="320px" border="1px solid rgba(218,216,208,.28)" borderRadius="12px" boxShadow="0 22px 60px rgba(0,0,0,.66)"><ModalHeader color="#eee9df" fontFamily="heading" textAlign="center" pb={1}>{statusDetail==='turns'?'残り回数':statusDetail==='luck'?'運気':'所持金'}</ModalHeader><ModalBody pt={2} pb={5} textAlign="center"><Center mb={3}><Icon as={statusDetail==='turns'?FaBolt:statusDetail==='luck'?FaStar:FaCoins} boxSize={8} color={statusDetail==='turns'?'yellow.300':statusDetail==='luck'?'green.300':'yellow.200'}/></Center><Text fontFamily="mono" fontWeight="900" fontSize="4xl" color={statusDetail==='turns'?'yellow.200':statusDetail==='luck'?'green.200':'yellow.100'} textShadow="0 0 18px rgba(255,255,255,.12)">{statusDetail==='turns'?`${s.turnsLeft}回`:statusDetail==='luck'?s.luck.toLocaleString('ja-JP'):`${s.money.toLocaleString('ja-JP')}円`}</Text><Text mt={2} fontSize="10px" color="gray.400">{statusDetail==='turns'?'ボタンを押せる残り回数です':statusDetail==='luck'?'現在の運気です':'現在の所持金です'}</Text></ModalBody><ModalFooter pt={0}><Button w="100%" size="sm" onClick={()=>setStatusDetail(null)}>閉じる</Button></ModalFooter></ModalContent></Modal>
       <Modal isOpen={inventoryPanel.isOpen} onClose={inventoryPanel.onClose} isCentered><ModalOverlay bg="rgba(0,0,0,.72)" backdropFilter="blur(6px)"/><ModalContent bg="linear-gradient(180deg,rgba(17,20,24,.98),rgba(5,6,8,.99))" maxW={{base:'350px',md:'520px'}} border="1px solid rgba(218,216,208,.28)" borderRadius="10px"><ModalHeader color="#eee9df" fontFamily="heading">アイテム ({s.items.length}/3)</ModalHeader><ModalBody>{s.items.length===0?<Text py={6} textAlign="center" color="gray.500">アイテムを持っていません</Text>:<Stack spacing={2}>{s.items.map((it,i)=>{const pal=itemPalette(it);return <Button key={`${it.id}-${i}`} h="58px" justifyContent="flex-start" bg={pal.bg} color={pal.text} border="1px solid" borderColor={pal.border} _hover={{filter:'brightness(1.12)'}} onClick={()=>{inventoryPanel.onClose();setSelected(i);}}><HStack w="100%"><Center w="34px" h="34px" rounded="md" bg="blackAlpha.400"><Icon as={it.icon||FaGift} color={pal.icon}/></Center><Box flex="1" textAlign="left"><Text fontSize="11px" fontWeight="900">{it.name}{it.type==='gem'?` ×${it.count||1}`:''}</Text><Text fontSize="9px" color="whiteAlpha.700">{it.type==='gem'?'宝石':it.type==='passive'?'常時効果':'消費アイテム'}</Text></Box></HStack></Button>})}</Stack>}</ModalBody><ModalFooter><Button w="100%" onClick={inventoryPanel.onClose}>閉じる</Button></ModalFooter></ModalContent></Modal>
@@ -1326,7 +1396,7 @@ export default function InfiniteElevator(){
         </Tabs>
       </ModalBody><ModalFooter><Button w="100%" bg="#111317" color="#eee9df" border="1px solid rgba(205,207,205,.24)" borderRadius="2px" _hover={{bg:'#351419'}} onClick={rank.onClose}>閉じる</Button></ModalFooter></ModalContent></Modal>
       <Modal isOpen={pendingOverflow!==null} onClose={()=>{}} closeOnOverlayClick={false} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="350px" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">持ち物がいっぱいです</ModalHeader><ModalBody><Text fontSize="xs" color="gray.300" mb={3}>{pendingOverflowPurchase?`「${pendingOverflow?.name}」を購入すると持ち物が4つになります。入れ替えるアイテムを選ぶか、購入をキャンセルしてください。`:`新しく「${pendingOverflow?.name}」を入手しました。4つのうち捨てる1つを選んでください。`}</Text><Stack spacing={2}>{[...s.items,...(pendingOverflow?[pendingOverflow]:[])].map((it,i)=>{const pal=itemPalette(it);return <Button key={`${it.id}-${i}`} h="54px" justifyContent="flex-start" bg={pal.bg} color={pal.text} border="1px solid" borderColor={pal.border} _hover={{filter:'brightness(1.15)'}} onClick={()=>resolveOverflow(i)}><HStack w="100%"><Icon as={it.icon||FaGift} color={pal.icon}/><Box flex="1" textAlign="left"><Text fontSize="11px" fontWeight="900">{it.name}{it.type==='gem'?` ×${it.count||1}`:''}</Text><Text fontSize="9px" color="whiteAlpha.700">{i===3?'新しく入手したアイテム':'現在の持ち物'}</Text></Box><Text fontSize="10px" color="red.200" fontWeight="900">これを捨てる</Text></HStack></Button>})}</Stack>{pendingOverflowPurchase&&<Button mt={4} w="100%" variant="outline" colorScheme="gray" onClick={cancelOverflowPurchase}>購入をキャンセル</Button>}</ModalBody></ModalContent></Modal>
-      <Modal isOpen={selected!==null} onClose={()=>setSelected(null)} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="330px" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)"><HStack><Center w="36px" h="36px" rounded="lg" bg="gray.700"><Icon as={selectedItem?.icon||FaGift} color={selectedItem?itemPalette(selectedItem).icon:'gray.200'}/></Center><Text>{selectedItem?.name}</Text></HStack></ModalHeader><ModalBody><Text fontSize="sm" color="gray.100">{selectedItem?.desc}</Text></ModalBody><ModalFooter gap={2}>{selectedItem?.type==='consumable'&&<Button colorScheme="green" onClick={()=>useItem(selected!)}>使用する</Button>}{selectedItem?.type==='gem'&&(room.kind==='shop'||room.kind==='legendshop')&&<Button colorScheme="yellow" onClick={()=>sellGem(selected!)}>売却 +{(selectedItem.price*(selectedItem.count||1))}円</Button>}{selectedItem?.type==='gem'&&room.kind!=='shop'&&room.kind!=='legendshop'&&<Text fontSize="xs" color="gray.400" alignSelf="center">宝石はショップ系または伝説の神器商店で売却できます</Text>}<Button colorScheme="red" variant="outline" onClick={()=>discard(selected!)}>捨てる</Button><Button onClick={()=>setSelected(null)}>閉じる</Button></ModalFooter></ModalContent></Modal>
+      <Modal isOpen={selected!==null} onClose={()=>setSelected(null)} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW="330px" border="1px solid rgba(218,216,208,.28)" borderRadius="2px"><ModalHeader fontFamily="heading" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)"><HStack><Center w="36px" h="36px" rounded="lg" bg="gray.700"><Icon as={selectedItem?.icon||FaGift} color={selectedItem?itemPalette(selectedItem).icon:'gray.200'}/></Center><Text>{selectedItem?.name}</Text></HStack></ModalHeader><ModalBody>{selectedItem&&<Stack spacing={3}><HStack><Badge colorScheme={selectedItem.type==='gem'?'blue':selectedItem.type==='passive'?'yellow':'green'}>{selectedItem.type==='gem'?'宝石':selectedItem.type==='passive'?'常時効果':'消費アイテム'}</Badge>{selectedItem.paramN&&<Badge variant="outline" colorScheme="purple">★{selectedItem.paramN}</Badge>}</HStack><Box p={3} bg="rgba(255,255,255,.045)" border="1px solid rgba(255,255,255,.12)" borderRadius="8px"><Text fontSize={{base:'14px',md:'15px'}} lineHeight="1.9" color="#f1eee6" fontWeight="700">{selectedItem.desc}</Text></Box>{selectedItem.type==='consumable'&&<Text fontSize="11px" color="green.200">使用すると効果が発動し、このアイテムは消費されます。</Text>}{selectedItem.type==='passive'&&<Text fontSize="11px" color="yellow.100">所持しているだけで効果が発動します。捨てるまで効果が続きます。</Text>}{selectedItem.type==='gem'&&<Text fontSize="11px" color="cyan.100">売却価格：1個 {selectedItem.price.toLocaleString()}円 / 現在 {selectedItem.count||1}個（合計 {(selectedItem.price*(selectedItem.count||1)).toLocaleString()}円）</Text>}</Stack>}</ModalBody><ModalFooter gap={2}>{selectedItem?.type==='consumable'&&<Button colorScheme="green" onClick={()=>useItem(selected!)}>使用する</Button>}{selectedItem?.type==='gem'&&(room.kind==='shop'||room.kind==='legendshop')&&<Button colorScheme="yellow" onClick={()=>sellGem(selected!)}>売却 +{(selectedItem.price*(selectedItem.count||1))}円</Button>}{selectedItem?.type==='gem'&&room.kind!=='shop'&&room.kind!=='legendshop'&&<Text fontSize="xs" color="gray.400" alignSelf="center">宝石はショップ系または伝説の神器商店で売却できます</Text>}<Button colorScheme="red" variant="outline" onClick={()=>discard(selected!)}>捨てる</Button><Button onClick={()=>setSelected(null)}>閉じる</Button></ModalFooter></ModalContent></Modal>
       <Modal isOpen={historyModal.isOpen} onClose={historyModal.onClose} isCentered size="md">
         <ModalOverlay bg="blackAlpha.850" backdropFilter="blur(6px)"/>
         <ModalContent bg="linear-gradient(180deg,#14171b,#07080a)" maxW={{base:'calc(100vw - 24px)',md:'560px'}} maxH="86vh" border="1px solid rgba(218,216,208,.30)" borderRadius="4px" boxShadow="0 24px 80px rgba(0,0,0,.72)">

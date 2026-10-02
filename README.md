@@ -564,3 +564,12 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
   - ⚡: Turns + bet / 20 (20 yen => +1, 40 yen => +2, 500 yen => +25)
 - Slot bet maximum is 500 yen.
 - Enhanced slot presentation with more reach states, slower final-reel suspense, stronger flashing/shaking, and jackpot messages. Presentation does not alter the configured win probabilities.
+
+## v92 - Item details + online battle
+- Gameplay item detail modal now shows a larger readable description, item category, passive/consumable behavior, and gem sale totals.
+- Added 2-player online room-code battle using Firebase anonymous auth + Firestore.
+- Create a 6-character room code, share it with another device, and start automatically when the guest joins.
+- Both players use the normal game rules starting from 10 turns. The higher final floor wins.
+- During battle, opponent floor / remaining turns / finish status are shown in the HUD.
+- Battle results wait for the opponent, but the local player can leave the waiting screen if the opponent disconnects.
+- `firestore.rules` now includes `battleRooms`; deploy the updated rules before using online battle.
