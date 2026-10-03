@@ -600,3 +600,10 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - 観戦対象はボタンで切り替え可能。
 - 全員が最後の操作を終えるまで結果を表示せず、全員終了後に1〜4位を表示。
 - battleRooms のデータ構造を複数プレイヤー対応へ変更したため、Firebase Console の Firestore Rules を同梱 firestore.rules に更新してください。
+
+
+## v98 - mobile battle UI compact
+- 2/3/4-player battles now use compact mobile HUD spacing.
+- Opponent mini screens are arranged horizontally on mobile and scale to the number of opponents.
+- PC opponent mini screens keep the larger vertical layout.
+- Spectator mode remains large-screen after the local player finishes.

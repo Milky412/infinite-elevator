@@ -1271,33 +1271,33 @@ export default function InfiniteElevator(){
         <Box position="absolute" inset={0} pointerEvents="none" bg="linear-gradient(90deg,rgba(0,0,0,.46),transparent 18%,transparent 82%,rgba(0,0,0,.46))"/>
         <Box position="absolute" top="-8%" left="50%" transform="translateX(-50%)" w="46%" h="74%" pointerEvents="none" bg="linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.03) 38%,transparent 90%)" filter="blur(12px)" opacity={.52} animation="cathedralFlicker 5s ease-in-out infinite"/>
         <Box position="absolute" inset={0} pointerEvents="none" opacity={.24} bgImage={`repeating-linear-gradient(90deg, transparent 0 35px, rgba(170,174,176,.05) 36px 37px),repeating-linear-gradient(0deg, transparent 0 70px, ${roomAtmosphere.accent} 71px 72px)`}/>
-        <Box position="absolute" top={{base:2,md:3}} left={{base:2,md:3}} zIndex={25} w={{base:'calc(100% - 16px)',md:'min(760px, calc(100% - 24px))'}} maxW="760px" px={{base:2,md:3}} py={{base:1.5,md:2}} bg="rgba(4,6,8,.78)" backdropFilter="blur(9px)" border="1px solid rgba(218,216,208,.24)" borderRadius="10px" boxShadow="0 12px 30px rgba(0,0,0,.38)">
-          <VStack spacing={1.5} align="stretch">
+        <Box position="absolute" top={{base:2,md:3}} left={{base:2,md:3}} zIndex={25} w={{base:'calc(100% - 16px)',md:'min(760px, calc(100% - 24px))'}} maxW="760px" px={{base:battleActive?1.5:2,md:3}} py={{base:battleActive?1:1.5,md:2}} bg="rgba(4,6,8,.78)" backdropFilter="blur(9px)" border="1px solid rgba(218,216,208,.24)" borderRadius="10px" boxShadow="0 12px 30px rgba(0,0,0,.38)">
+          <VStack spacing={{base:battleActive?.75:1.5,md:1.5}} align="stretch">
             <Grid
               templateColumns={{base:'minmax(0,1fr) auto',md:'118px minmax(0,1fr) auto'}}
               templateAreas={{base:'"floor controls" "stats stats"',md:'"floor stats controls"'}}
               columnGap={{base:2,md:2.5}}
-              rowGap={{base:1.5,md:0}}
+              rowGap={{base:battleActive?.75:1.5,md:0}}
               alignItems="center"
               w="100%"
               minW={0}
             >
               <HStack gridArea="floor" minW={0} spacing={1.5} pr={{base:0,md:2}} borderRight={{base:'none',md:'1px solid rgba(255,255,255,.14)'}}>
-                <Box minW={0}><Text fontSize={{base:'8px',md:'9px'}} color="gray.400" fontWeight="700">CURRENT FLOOR</Text><HStack spacing={1}><Text fontFamily="mono" fontSize={{base:'xl',md:'3xl'}} color="#f2eee5" fontWeight="900" noOfLines={1}>{s.floor}</Text><Text fontSize="9px" color="gray.300">F</Text></HStack></Box>
+                <Box minW={0}><Text fontSize={{base:battleActive?'7px':'8px',md:'9px'}} color="gray.400" fontWeight="700">CURRENT FLOOR</Text><HStack spacing={1}><Text fontFamily="mono" fontSize={{base:battleActive?'lg':'xl',md:'3xl'}} color="#f2eee5" fontWeight="900" noOfLines={1}>{s.floor}</Text><Text fontSize="9px" color="gray.300">F</Text></HStack></Box>
               </HStack>
               <Grid gridArea="stats" templateColumns="minmax(0,.82fr) minmax(0,.82fr) minmax(0,1.36fr)" gap={{base:1,md:1.5}} minW={0} w="100%">
-                {[[FaBolt,'残り',s.turnsLeft,'yellow.300','turns'],[FaStar,'運気',s.luck,'green.300','luck'],[FaCoins,'所持金',s.money,'yellow.200','money']].map(([ic,l,v,c,key]:any)=>{const moneyText=key==='money'?`${Number(v).toLocaleString('ja-JP')}円`:'';const moneyLen=moneyText.length;return <Button key={l} minW={0} w="100%" h={{base:'44px',md:'52px'}} px={{base:key==='money'?1.5:1,md:key==='money'?2.5:2}} py={{base:1,md:1.5}} justifyContent="flex-start" overflow="hidden" bg="rgba(0,0,0,.48)" border="1px solid rgba(255,255,255,.12)" borderRadius="8px" _hover={{bg:'rgba(255,255,255,.12)',borderColor:'rgba(255,255,255,.22)'}} _active={{transform:'translateY(1px)'}} onClick={()=>setStatusDetail(key)}><HStack spacing={{base:.75,md:1.25}} minW={0} w="100%"><Icon as={ic} color={c} boxSize={{base:3.5,md:4}} flexShrink={0}/><Box minW={0} textAlign="left" flex="1" overflow="hidden"><Text fontSize={{base:'7px',md:'9px'}} color="gray.300" fontWeight="700" noOfLines={1}>{l}</Text><Text fontSize={key==='money'?{base:moneyLen>=13?'8px':moneyLen>=11?'9px':'11px',md:moneyLen>=15?'10px':moneyLen>=12?'12px':'14px'}:{base:'11px',md:'15px'}} lineHeight="1.15" fontFamily="mono" fontWeight="900" color={c} whiteSpace="nowrap" letterSpacing={key==='money'&&moneyLen>=11?'-0.04em':undefined} overflow="hidden" textOverflow="clip">{key==='money'?moneyText:v}</Text></Box></HStack></Button>})}
+                {[[FaBolt,'残り',s.turnsLeft,'yellow.300','turns'],[FaStar,'運気',s.luck,'green.300','luck'],[FaCoins,'所持金',s.money,'yellow.200','money']].map(([ic,l,v,c,key]:any)=>{const moneyText=key==='money'?`${Number(v).toLocaleString('ja-JP')}円`:'';const moneyLen=moneyText.length;return <Button key={l} minW={0} w="100%" h={{base:battleActive?'38px':'44px',md:'52px'}} px={{base:key==='money'?1.5:1,md:key==='money'?2.5:2}} py={{base:1,md:1.5}} justifyContent="flex-start" overflow="hidden" bg="rgba(0,0,0,.48)" border="1px solid rgba(255,255,255,.12)" borderRadius="8px" _hover={{bg:'rgba(255,255,255,.12)',borderColor:'rgba(255,255,255,.22)'}} _active={{transform:'translateY(1px)'}} onClick={()=>setStatusDetail(key)}><HStack spacing={{base:.75,md:1.25}} minW={0} w="100%"><Icon as={ic} color={c} boxSize={{base:3.5,md:4}} flexShrink={0}/><Box minW={0} textAlign="left" flex="1" overflow="hidden"><Text fontSize={{base:'7px',md:'9px'}} color="gray.300" fontWeight="700" noOfLines={1}>{l}</Text><Text fontSize={key==='money'?{base:moneyLen>=13?'8px':moneyLen>=11?'9px':'11px',md:moneyLen>=15?'10px':moneyLen>=12?'12px':'14px'}:{base:'11px',md:'15px'}} lineHeight="1.15" fontFamily="mono" fontWeight="900" color={c} whiteSpace="nowrap" letterSpacing={key==='money'&&moneyLen>=11?'-0.04em':undefined} overflow="hidden" textOverflow="clip">{key==='money'?moneyText:v}</Text></Box></HStack></Button>})}
               </Grid>
-              <HStack gridArea="controls" spacing={1} flexShrink={0} justify="flex-end"><Button size="xs" minW="38px" h="28px" px={1.5} bg={gameSpeed===2?'#521920':'rgba(255,255,255,.07)'} color="white" border="1px solid rgba(200,200,200,.18)" onClick={()=>setGameSpeed(v=>v===1?2:1)}>×{gameSpeed}</Button><IconButton aria-label="bgm" size="xs" h="28px" minW="28px" variant="ghost" color={soundOn?'#ddd7cb':'gray.500'} icon={soundOn?<FaVolumeHigh/>:<FaVolumeXmark/>} onClick={()=>setSoundOn(v=>!v)}/></HStack>
+              <HStack gridArea="controls" spacing={1} flexShrink={0} justify="flex-end"><Button size="xs" minW={{base:battleActive?'34px':'38px',md:'38px'}} h={{base:battleActive?'24px':'28px',md:'28px'}} px={1.5} bg={gameSpeed===2?'#521920':'rgba(255,255,255,.07)'} color="white" border="1px solid rgba(200,200,200,.18)" onClick={()=>setGameSpeed(v=>v===1?2:1)}>×{gameSpeed}</Button><IconButton aria-label="bgm" size="xs" h={{base:battleActive?'24px':'28px',md:'28px'}} minW={{base:battleActive?'24px':'28px',md:'28px'}} variant="ghost" color={soundOn?'#ddd7cb':'gray.500'} icon={soundOn?<FaVolumeHigh/>:<FaVolumeXmark/>} onClick={()=>setSoundOn(v=>!v)}/></HStack>
             </Grid>
             <HStack spacing={1.5} align="center" justify="flex-start" w="100%">
-              <Button h="28px" size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={inventoryPanel.onOpen}>アイテム {s.items.length}/3</Button>
-              <Button h="28px" size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={logPanel.onOpen}>ログ</Button>
+              <Button h={{base:battleActive?'24px':'28px',md:'28px'}} size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={inventoryPanel.onOpen}>アイテム {s.items.length}/3</Button>
+              <Button h={{base:battleActive?'24px':'28px',md:'28px'}} size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={logPanel.onOpen}>ログ</Button>
               {(s.ringBuff.active||s.mirrorMultiplier>1||s.partySet)&&<HStack spacing={1} flexWrap="wrap">{s.ringBuff.active&&<Badge fontSize="7px" colorScheme="green">指輪+{s.ringBuff.amount} / 残り{s.ringBuff.turns}</Badge>}{s.mirrorMultiplier>1&&<Badge fontSize="7px" colorScheme="cyan">鏡×{s.mirrorMultiplier}</Badge>}{s.partySet&&<Badge fontSize="7px" colorScheme="pink">演出UP</Badge>}</HStack>}
             </HStack>
             <Box w="100%" overflowX="auto" overflowY="hidden" sx={{WebkitOverflowScrolling:'touch'}}>
               <HStack spacing={1.5} justify="flex-start" minW="max-content" pb={.5}>
-                {s.items.length===0?<Text fontSize="8px" color="gray.500" px={1}>所持アイテムなし</Text>:s.items.map((it,i)=>{const pal=itemPalette(it);return <Button key={`${it.id}-${i}`} h="32px" minW="auto" px={2} flexShrink={0} justifyContent="flex-start" bg={pal.bg} color={pal.text} border="1px solid" borderColor={pal.border} borderRadius="6px" _hover={{filter:'brightness(1.12)'}} onClick={()=>setSelected(i)}><HStack spacing={1.5}><Icon as={it.icon||FaGift} boxSize={3} color={pal.icon}/><Text fontSize="8px" fontWeight="900" whiteSpace="nowrap">{it.name}{it.type==='gem'?` ×${it.count||1}`:''}</Text></HStack></Button>})}
+                {s.items.length===0?<Text fontSize="8px" color="gray.500" px={1}>所持アイテムなし</Text>:s.items.map((it,i)=>{const pal=itemPalette(it);return <Button key={`${it.id}-${i}`} h={{base:battleActive?'27px':'32px',md:'32px'}} minW="auto" px={2} flexShrink={0} justifyContent="flex-start" bg={pal.bg} color={pal.text} border="1px solid" borderColor={pal.border} borderRadius="6px" _hover={{filter:'brightness(1.12)'}} onClick={()=>setSelected(i)}><HStack spacing={1.5}><Icon as={it.icon||FaGift} boxSize={3} color={pal.icon}/><Text fontSize="8px" fontWeight="900" whiteSpace="nowrap">{it.name}{it.type==='gem'?` ×${it.count||1}`:''}</Text></HStack></Button>})}
               </HStack>
             </Box>
           </VStack>
@@ -1305,26 +1305,31 @@ export default function InfiniteElevator(){
 
         {battleActive&&battleRoom&&battleRole&&(()=>{
           const opponents=getBattlePlayers(battleRoom).filter(({role})=>role!==battleRole);
-          return <VStack position="absolute" top={{base:'184px',md:'12px'}} right={{base:'6px',md:'12px'}} zIndex={27} spacing={{base:1,md:1.5}} w={{base:'118px',md:'220px'}} align="stretch" pointerEvents="none">
-            {opponents.map(({role,player})=>{
-              const opp=player.progress;
-              const oppStage=stageCatalog.find(stage=>stage.title===(opp.roomTitle||'エレベーターホール'));
-              const oppImage=oppStage?.image?`${process.env.NEXT_PUBLIC_BASE_PATH||''}/${oppStage.image}`:null;
-              const phaseLabel=opp.finished?'終了':opp.phase==='dialogue'?'会話':opp.phase==='moving'?'移動':opp.phase==='event'?'イベント':'操作中';
-              return <Box key={role} position="relative" h={{base:'62px',md:'98px'}} overflow="hidden" bg="#050608" bgImage={oppImage?`linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.55)), url("${oppImage}")`:oppStage?.bg} bgSize="cover" bgPosition="center" border="1px solid rgba(235,112,122,.68)" borderRadius="8px" boxShadow="0 8px 22px rgba(0,0,0,.52)">
+          const cards=opponents.map(({role,player})=>{
+            const opp=player.progress;
+            const oppStage=stageCatalog.find(stage=>stage.title===(opp.roomTitle||'エレベーターホール'));
+            const oppImage=oppStage?.image?`${process.env.NEXT_PUBLIC_BASE_PATH||''}/${oppStage.image}`:null;
+            const phaseLabel=opp.finished?'終了':opp.phase==='dialogue'?'会話':opp.phase==='moving'?'移動':opp.phase==='event'?'イベント':'操作中';
+            return {role,player,opp,oppStage,oppImage,phaseLabel};
+          });
+          return <>
+            <HStack display={{base:'flex',md:'none'}} position="absolute" top="132px" left="6px" right="6px" zIndex={27} spacing={1} justify="flex-end" align="stretch" pointerEvents="none">
+              {cards.map(({role,player,opp,oppStage,oppImage,phaseLabel})=><Box key={role} position="relative" flex="1" minW={0} maxW={opponents.length===1?'112px':undefined} h="46px" overflow="hidden" bg="#050608" bgImage={oppImage?`linear-gradient(180deg,rgba(0,0,0,.22),rgba(0,0,0,.66)), url("${oppImage}")`:oppStage?.bg} bgSize="cover" bgPosition="center" border="1px solid rgba(235,112,122,.62)" borderRadius="7px" boxShadow="0 5px 14px rgba(0,0,0,.45)">
+                <Box position="absolute" inset={0} bg="linear-gradient(180deg,rgba(0,0,0,.62),rgba(0,0,0,.12) 46%,rgba(0,0,0,.82))"/>
+                <HStack position="absolute" top="2px" left="4px" right="4px" justify="space-between" spacing={1}><Text fontSize="5px" color="white" fontWeight="900" noOfLines={1}>{player.name}</Text><Badge fontSize="3px" px="2px" colorScheme={opp.finished?'green':'red'}>{opp.finished?'END':'LIVE'}</Badge></HStack>
+                <Text position="absolute" left="4px" bottom="10px" fontFamily="mono" fontSize="12px" lineHeight="1" color="yellow.100" fontWeight="900" textShadow="0 1px 4px #000">{opp.floor}F</Text>
+                <HStack position="absolute" bottom="2px" left="4px" right="4px" justify="space-between" spacing={1}><Text fontSize="4px" color="cyan.100" fontWeight="800" noOfLines={1}>{phaseLabel}</Text><Text fontSize="4px" color="whiteAlpha.850">残{opp.turns}</Text></HStack>
+              </Box>)}
+            </HStack>
+            <VStack display={{base:'none',md:'flex'}} position="absolute" top="12px" right="12px" zIndex={27} spacing={1.5} w="220px" align="stretch" pointerEvents="none">
+              {cards.map(({role,player,opp,oppStage,oppImage,phaseLabel})=><Box key={role} position="relative" h="98px" overflow="hidden" bg="#050608" bgImage={oppImage?`linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.55)), url("${oppImage}")`:oppStage?.bg} bgSize="cover" bgPosition="center" border="1px solid rgba(235,112,122,.68)" borderRadius="8px" boxShadow="0 8px 22px rgba(0,0,0,.52)">
                 <Box position="absolute" inset={0} bg="linear-gradient(180deg,rgba(0,0,0,.62),transparent 42%,rgba(0,0,0,.78))"/>
-                <HStack position="absolute" top="4px" left="5px" right="5px" justify="space-between" spacing={1}>
-                  <Text fontSize={{base:'6px',md:'8px'}} color="white" fontWeight="900" noOfLines={1}>{player.name}</Text>
-                  <Badge fontSize={{base:'4px',md:'6px'}} colorScheme={opp.finished?'green':'red'}>{opp.finished?'END':'LIVE'}</Badge>
-                </HStack>
-                <Center position="absolute" inset={{base:'14px 3px 13px',md:'22px 5px 18px'}} flexDir="column">
-                  <Text fontFamily="mono" fontSize={{base:'15px',md:'24px'}} lineHeight="1" color="yellow.100" fontWeight="900" textShadow="0 2px 7px #000">{opp.floor}F</Text>
-                  <Text mt="2px" fontSize={{base:'5px',md:'7px'}} color="whiteAlpha.800" noOfLines={1}>{opp.roomTitle||'エレベーターホール'}</Text>
-                </Center>
-                <HStack position="absolute" bottom="3px" left="5px" right="5px" justify="space-between"><Text fontSize={{base:'5px',md:'7px'}} color="cyan.100" fontWeight="800">{phaseLabel}</Text><Text fontSize={{base:'5px',md:'7px'}} color="whiteAlpha.800">残り{opp.turns}</Text></HStack>
-              </Box>;
-            })}
-          </VStack>;
+                <HStack position="absolute" top="4px" left="5px" right="5px" justify="space-between" spacing={1}><Text fontSize="8px" color="white" fontWeight="900" noOfLines={1}>{player.name}</Text><Badge fontSize="6px" colorScheme={opp.finished?'green':'red'}>{opp.finished?'END':'LIVE'}</Badge></HStack>
+                <Center position="absolute" inset="22px 5px 18px" flexDir="column"><Text fontFamily="mono" fontSize="24px" lineHeight="1" color="yellow.100" fontWeight="900" textShadow="0 2px 7px #000">{opp.floor}F</Text><Text mt="2px" fontSize="7px" color="whiteAlpha.800" noOfLines={1}>{opp.roomTitle||'エレベーターホール'}</Text></Center>
+                <HStack position="absolute" bottom="3px" left="5px" right="5px" justify="space-between"><Text fontSize="7px" color="cyan.100" fontWeight="800">{phaseLabel}</Text><Text fontSize="7px" color="whiteAlpha.800">残り{opp.turns}</Text></HStack>
+              </Box>)}
+            </VStack>
+          </>;
         })()}
 
         {battleActive&&battleRunFinished&&battleRoom&&battleRole&&(()=>{
