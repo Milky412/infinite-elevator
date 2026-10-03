@@ -607,3 +607,13 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - Opponent mini screens are arranged horizontally on mobile and scale to the number of opponents.
 - PC opponent mini screens keep the larger vertical layout.
 - Spectator mode remains large-screen after the local player finishes.
+
+## v99
+- Smartphone battle HUD compact layout from v98 retained.
+- Rival live mini-screen size/layout restored to the v97 size on mobile.
+
+## v100 - Single-player compact HUD alignment
+- 一人用プレイのスマホ上部HUDを、対戦時と同じコンパクト寸法へ統一しました。
+- 階数・残り回数・運気・所持金・速度/BGM・アイテム/ログ・所持アイテム行を省スペース化しています。
+- 一人用では上部HUDが小さくなった分、中央イベントUIの開始位置を 184px → 158px に調整し、背景とイベント表示領域を広く確保しました。
+- 対戦モード側のHUD寸法・相手ライブ画面・観戦UIの配置は変更していません。
