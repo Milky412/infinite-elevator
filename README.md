@@ -646,8 +646,16 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 
 ## v105 Master Command
 - Start screen has an intentionally invisible developer hit area immediately to the right of the 「ゲームを始める」 button.
-- Opening it shows MASTER COMMAND for developer testing.
+- Opening the hidden area switches the game itself into 開発者モード for developer testing.
 - Configure starting floor, luck, turns, money, and up to 3 inventory slots.
 - Choose any catalog stage as the first room.
 - Queue any number of later rooms; queued rooms are consumed in order, then normal random room selection resumes.
 - Developer runs do not update local high score, local play history, or Firebase rankings.
+
+## v106 開発者モード
+- スタート画面「ゲームを始める」右横の非表示クリック領域で通常モード / 開発者モードを切り替えます。
+- 別のコマンド画面は開かず、スタート画面そのものが開発用UIへ切り替わります。
+- 開発者モードでは開始階・運気・残り回数・所持金・3枠の所持アイテム・開始ステージ・次回以降の部屋予約を直接設定できます。
+- ステージ図鑑も開発者モード表示へ変化し、任意ステージへ直接移動できます。
+- 開発プレイ中はHUDが開発者モード用に変化し、階/運気/残り回数/所持金の即時変更、次室予約、アイテム追加、ステージ図鑑からの直接移動が可能です。
+- 開発者モードのプレイは最高記録・ローカル履歴・月間/総合ランキングへ保存されません。
