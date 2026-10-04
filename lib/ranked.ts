@@ -19,6 +19,8 @@ export type RankCpu = {
   items: RankCpuItem[];
   finished: boolean;
   lastAction: string;
+  roomTitle: string;
+  roomImage: string;
 };
 
 export type TrophyProfile = {
@@ -44,6 +46,38 @@ const TROPHY_PROFILE_KEY = 'infinite_elevator_trophy_profile_v1';
 const CPU_NAMES = ['クロウ','ミナト','ルナ','ノア','レイ','アオイ','シオン','カイ','ユウ','ナギ','ソラ','リク'];
 const STRATEGIES: RankCpuStrategy[] = ['luck','turns','floor','money','balanced'];
 const ri=(a:number,b:number)=>Math.floor(Math.random()*(b-a+1))+a;
+
+const CPU_ROOM_VISUALS={
+  luck:[
+    {title:'ラッキー部屋',image:'stages/stage-03.webp'},
+    {title:'超ラッキー部屋',image:'stages/stage-15.webp'},
+    {title:'占い師の小部屋',image:'stages/stage-10.webp'},
+  ],
+  turns:[
+    {title:'健康の湯',image:'stages/stage-04.webp'},
+    {title:'無病の湯',image:'stages/stage-16.webp'},
+    {title:'自動販売機',image:'stages/stage-14.webp'},
+  ],
+  floor:[
+    {title:'短い階段',image:'stages/stage-06.webp'},
+    {title:'長い階段',image:'stages/stage-18.webp'},
+    {title:'果てしなく長い階段',image:'stages/stage-28.webp'},
+  ],
+  money:[
+    {title:'落ちている財布',image:'stages/stage-05.webp'},
+    {title:'小さなお店',image:'stages/stage-08.webp'},
+    {title:'大きなお店',image:'stages/stage-19.webp'},
+  ],
+  item:[
+    {title:'小さな宝箱',image:'stages/stage-09.webp'},
+    {title:'魔法鍛冶屋',image:'stages/stage-21.webp'},
+    {title:'不思議なアイテム箱',image:'stages/stage-30.webp'},
+  ],
+} as const;
+
+export const RANK_CPU_ITEM_LABELS:Record<RankCpuItem,string>={
+  mirror:'乱反射の鏡', ring:'幸運の指輪', party_set:'パーティーセット', shop_ticket:'お店チケット',
+};
 const pick=<T,>(xs:T[])=>xs[Math.floor(Math.random()*xs.length)];
 
 // 週の区切りは月曜 00:00 JST。YYYY-MM-DD形式でその週の月曜日を返す。
@@ -157,7 +191,7 @@ export function createRankCpuPlayers():RankCpu[]{
   const names=[...CPU_NAMES].sort(()=>Math.random()-.5).slice(0,3);
   return names.map((name,index)=>({
     id:`cpu${index+1}`, name, strategy:pick(STRATEGIES), floor:1, turns:10, luck:0, money:1000,
-    items:[], finished:false, lastAction:'待機中',
+    items:[], finished:false, lastAction:'待機中', roomTitle:'エレベーターホール', roomImage:'stages/stage-01.webp',
   }));
 }
 
@@ -205,6 +239,9 @@ export function advanceRankCpu(input:RankCpu):RankCpu{
   cpu.floor+=steps;
 
   const reward=rewardForStrategy(cpu.strategy);
+  const roomVisual=pick([...CPU_ROOM_VISUALS[reward]]);
+  cpu.roomTitle=roomVisual.title;
+  cpu.roomImage=roomVisual.image;
   if(reward==='luck'){
     const gain=ri(1,cpu.strategy==='luck'?5:3); cpu.luck+=gain; cpu.lastAction=`${steps}階上昇 / 運気+${gain}`;
   }else if(reward==='turns'){
