@@ -1367,7 +1367,7 @@ export default function InfiniteElevator(){
           <Bullet>順位報酬は <b>1位 +3 / 2位 +1 / 3位 -1 / 4位 -2 トロフィー</b> です。</Bullet>
           <Bullet>プレイヤーがボタンを押すたび、残り回数があるCPUも同じタイミングで1部屋進みます。</Bullet>
           <Bullet>プレイヤー終了後もCPUに残り回数がある場合、CPUは3秒ごとに1部屋進み、全員終了後に順位を確定します。</Bullet>
-          <Bullet>CPUはアイテムを獲得・使用します。行動方針は5種類から内部でランダム選択され、内容はプレイヤーには表示されません。</Bullet>
+          <Bullet>CPUもゲーム中にアイテムを獲得・使用することがあります。</Bullet>
           <Bullet>週間トロフィーは毎週月曜0:00(JST)にリセットされ、前週最終値は総合トロフィーランキングの自己ベスト候補になります。</Bullet>
         </HelpSection>
         <HelpSection title="2. 基本の流れ">
