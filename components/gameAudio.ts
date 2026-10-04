@@ -1,7 +1,7 @@
 // Web Audio APIで効果音/BGMを生成する音響モジュール。
 // 音源ファイルを増やさず、ゲーム状況ごとのサウンドをここで一元管理する。
 
-export type SfxName = 'click'|'start'|'door'|'move1'|'move2'|'move3'|'move4'|'arrive'|'success'|'fail'|'coin'|'item'|'buy'|'sell'|'mine'|'gem'|'card'|'casino'|'slotStop'|'jackpot'|'warpUp'|'warpDown'|'roulette'|'hell'|'gameover'|'discard'|'upgrade';
+export type SfxName = 'cpuTick'|'click'|'start'|'door'|'move1'|'move2'|'move3'|'move4'|'arrive'|'success'|'fail'|'coin'|'item'|'buy'|'sell'|'mine'|'gem'|'card'|'casino'|'slotStop'|'jackpot'|'warpUp'|'warpDown'|'roulette'|'hell'|'gameover'|'discard'|'upgrade';
 export type DoorChoice = 'creaky'|'silver'|'gold'|'luck'|'health'|'money';
 let audioContext: AudioContext | null = null;
 export function playSfx(name:SfxName, enabled=true){
@@ -26,6 +26,7 @@ export function playSfx(name:SfxName, enabled=true){
       const src=ctx.createBufferSource(),g=ctx.createGain(); src.buffer=b; g.gain.setValueAtTime(vol,now+start); g.gain.exponentialRampToValueAtTime(.0001,now+start+dur); src.connect(g);g.connect(ctx.destination);src.start(now+start);
     };
     switch(name){
+      case 'cpuTick': tone(1320,0,.045,'sine',.04,1080); break;
       case 'click': tone(520,0,.045,'square',.025,430); break;
       case 'start': tone(392,0,.09,'triangle',.05);tone(523,.08,.1,'triangle',.055);tone(659,.17,.14,'triangle',.06);break;
       case 'door': tone(150,0,.18,'sawtooth',.025,80);noise(0,.15,.018);break;

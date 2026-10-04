@@ -105,12 +105,17 @@ export function loadTrophyProfile(now=new Date()):TrophyProfile{
       localStorage.setItem(TROPHY_PROFILE_KEY,JSON.stringify(initial));
       return initial;
     }
-    if(raw.weekKey===currentWeek) return raw;
+    if(raw.weekKey===currentWeek){
+      // トロフィーは常に0以上。過去データに負数が残っていても読み込み時に補正する。
+      const normalized={...raw,trophies:Math.max(0,Math.trunc(raw.trophies))};
+      if(normalized.trophies!==raw.trophies) localStorage.setItem(TROPHY_PROFILE_KEY,JSON.stringify(normalized));
+      return normalized;
+    }
     const rolled:TrophyProfile={
       weekKey:currentWeek,
       trophies:0,
       previousWeekKey:raw.weekKey,
-      previousWeekTrophies:raw.trophies,
+      previousWeekTrophies:Math.max(0,Math.trunc(raw.trophies)),
     };
     localStorage.setItem(TROPHY_PROFILE_KEY,JSON.stringify(rolled));
     return rolled;
@@ -121,7 +126,8 @@ export function loadTrophyProfile(now=new Date()):TrophyProfile{
 
 export function applyTrophyDelta(delta:number,now=new Date()){
   const profile=loadTrophyProfile(now);
-  const next={...profile,trophies:profile.trophies+delta};
+  // 順位減算や切断ペナルティがあっても、トロフィーは0未満にしない。
+  const next={...profile,trophies:Math.max(0,profile.trophies+delta)};
   if(typeof window!=='undefined') localStorage.setItem(TROPHY_PROFILE_KEY,JSON.stringify(next));
   return next;
 }
@@ -152,7 +158,7 @@ export async function submitWeeklyTrophies(playerId:string,name:string,trophies:
   const user=await ensureUser(); if(!user) return false;
   await setDoc(doc(trophyCollection('weekly',weekKey),playerId),{
     uid:user.uid,playerId,name:Array.from(name.trim()||'名無しの登山者').slice(0,12).join(''),
-    trophies:Math.trunc(trophies),weekKey,updatedAt:serverTimestamp(),
+    trophies:Math.max(0,Math.trunc(trophies)),weekKey,updatedAt:serverTimestamp(),
   });
   return true;
 }
@@ -167,7 +173,7 @@ export async function submitFinalizedWeekToAlltime(playerId:string,name:string,t
   if(current!==null&&current>=trophies) return true;
   await setDoc(ref,{
     uid:user.uid,playerId,name:Array.from(name.trim()||'名無しの登山者').slice(0,12).join(''),
-    trophies:Math.trunc(trophies),weekKey,updatedAt:serverTimestamp(),
+    trophies:Math.max(0,Math.trunc(trophies)),weekKey,updatedAt:serverTimestamp(),
   });
   return true;
 }

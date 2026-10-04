@@ -112,6 +112,8 @@ export default function InfiniteElevator(){
   const [selectedRankCpuId,setSelectedRankCpuId]=useState<string|null>(null);
   const [rankedPlayerFinished,setRankedPlayerFinished]=useState(false);
   const rankedAwardedRef=useRef(false);
+  // プレイヤー終了後のCPU自動進行回数。5回ごとに行動間隔を半分にする。
+  const rankedCpuAutoStepRef=useRef(0);
   const rankedDisconnectPenaltyRef=useRef(false);
   // スマホでは上部HUDと対戦状況パネルの実寸を測り、固定位置による過剰な余白や重なりを防ぐ。
   const topHudRef=useRef<HTMLDivElement|null>(null);
@@ -304,12 +306,18 @@ export default function InfiniteElevator(){
     if(!spectateRole||!candidates.some(x=>x.role===spectateRole)) setSpectateRole(candidates[0].role);
   },[battleRunFinished,battleRoom,battleRole,spectateRole]);
 
-  // プレイヤーの残り回数が尽きた後は、行動可能なCPUを3秒ごとに1部屋ずつ同時進行させる。
+  // プレイヤー終了後はCPUが自動進行。1行動ごとに『ピッ』と鳴らし、5行動ごとに速度を2倍にする。
   useEffect(()=>{
     if(!rankedActive||!rankedPlayerFinished||rankedAwardedRef.current)return;
     const hasCpuTurns=rankedCpus.some(cpu=>cpu.turns>0);
     if(hasCpuTurns){
-      const timer=window.setTimeout(()=>setRankedCpus(cpus=>cpus.map(cpu=>cpu.turns>0?advanceRankCpu(cpu):cpu)),3000);
+      const speedMultiplier=Math.pow(2,Math.floor(rankedCpuAutoStepRef.current/5));
+      const delay=Math.max(120,3000/speedMultiplier);
+      const timer=window.setTimeout(()=>{
+        playSfx('cpuTick',soundOn);
+        rankedCpuAutoStepRef.current+=1;
+        setRankedCpus(cpus=>cpus.map(cpu=>cpu.turns>0?advanceRankCpu(cpu):cpu));
+      },delay);
       return ()=>window.clearTimeout(timer);
     }
 
@@ -322,7 +330,8 @@ export default function InfiniteElevator(){
     if(typeof window!=='undefined')localStorage.removeItem('infinite_elevator_computer_battle_active_v1');
     setRankedDisconnectPenalty(false);
     setTrophyProfile(afterProfile);
-    setRankedMatchResult({place,delta,before:beforeProfile.trophies,after:afterProfile.trophies,order});
+    const appliedDelta=afterProfile.trophies-beforeProfile.trophies;
+    setRankedMatchResult({place,delta:appliedDelta,before:beforeProfile.trophies,after:afterProfile.trophies,order});
     playSfx(place===1?'jackpot':place<=3?'success':'gameover',soundOn);
     rankedResult.onOpen();
 
@@ -352,7 +361,8 @@ export default function InfiniteElevator(){
       const place=Math.max(1,order.findIndex(row=>row.isPlayer)+1);
       setRankedDisconnectPenalty(true);
       setTrophyProfile(afterProfile);
-      setRankedMatchResult({place,delta:-2,before:beforeProfile.trophies,after:afterProfile.trophies,order});
+      const appliedDelta=afterProfile.trophies-beforeProfile.trophies;
+      setRankedMatchResult({place,delta:appliedDelta,before:beforeProfile.trophies,after:afterProfile.trophies,order});
       setRankedPlayerFinished(true);
       playSfx('gameover',soundOn);
       rankedResult.onOpen();
@@ -438,13 +448,13 @@ export default function InfiniteElevator(){
 
   const resetRunCore=()=>{playSfx('start',soundOn);runRecordedRef.current=false;setNewPersonalBest(false);setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);setRoomIntro(false);scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setKeys({copper:0,silver:0,gold:0,diamond:0});setScratchRevealed([false,false,false]);setScratchPaid(false);setFateStage(0);setFateDone(false);setFateOpeningDoor(null);setFatePending({money:500,luck:0,turns:0,items:[],labels:['初期報酬 500円']});setPirateBoxes([]);setPiratePicks([]);setPirateRevealAll(false);setItemGrantQueue([]);setS({...baseState,highScore:s.highScore});setMenu(false);setGameover(false);setDoors(true);setRoom({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});};
   const clearBattleSession=()=>{battleUnsubRef.current?.();battleUnsubRef.current=null;setBattleCode('');setBattleRole(null);setBattleRoom(null);setBattleActive(false);setBattleRunFinished(false);setSpectateRole(null);battleStartedRef.current=false;};
-  const clearRankedSession=()=>{setRankedActive(false);setRankedCpus([]);setSelectedRankCpuId(null);setRankedPlayerFinished(false);setRankedMatchResult(null);setRankedDisconnectPenalty(false);rankedAwardedRef.current=false;rankedDisconnectPenaltyRef.current=false;if(typeof window!=='undefined')localStorage.removeItem('infinite_elevator_computer_battle_active_v1');};
+  const clearRankedSession=()=>{rankedCpuAutoStepRef.current=0;setRankedActive(false);setRankedCpus([]);setSelectedRankCpuId(null);setRankedPlayerFinished(false);setRankedMatchResult(null);setRankedDisconnectPenalty(false);rankedAwardedRef.current=false;rankedDisconnectPenaltyRef.current=false;if(typeof window!=='undefined')localStorage.removeItem('infinite_elevator_computer_battle_active_v1');};
   const start=()=>{setMasterActive(false);masterRoomQueueRef.current=[];clearBattleSession();clearRankedSession();resetRunCore();};
   const startBattleRun=()=>{setMasterActive(false);masterRoomQueueRef.current=[];clearRankedSession();setBattleActive(true);setBattleRunFinished(false);resetRunCore();};
   const startRankedRun=()=>{
     computerBattleMenu.onClose();
     setMasterActive(false);masterRoomQueueRef.current=[];clearBattleSession();
-    setRankedActive(true);setRankedCpus(createRankCpuPlayers());setSelectedRankCpuId(null);setRankedPlayerFinished(false);setRankedMatchResult(null);setRankedDisconnectPenalty(false);rankedAwardedRef.current=false;rankedDisconnectPenaltyRef.current=false;
+    rankedCpuAutoStepRef.current=0;setRankedActive(true);setRankedCpus(createRankCpuPlayers());setSelectedRankCpuId(null);setRankedPlayerFinished(false);setRankedMatchResult(null);setRankedDisconnectPenalty(false);rankedAwardedRef.current=false;rankedDisconnectPenaltyRef.current=false;
     if(typeof window!=='undefined')localStorage.setItem('infinite_elevator_computer_battle_active_v1','1');
     resetRunCore();
   };
@@ -1512,7 +1522,7 @@ export default function InfiniteElevator(){
           <Bullet>プレイヤー1人とCPU4人で5人対戦します。最終到達階数が高い順に順位を決めます。</Bullet>
           <Bullet>順位報酬は <b>1位 +3 / 2位 +1 / 3位 0 / 4位 -1 / 5位 -2 トロフィー</b> です。</Bullet><Bullet><b>注意：</b>対戦途中に通信切断・ページ再読み込み・ページ離脱が発生した場合、その試合はトロフィー <b>-2</b> のペナルティになります。</Bullet>
           <Bullet>プレイヤーがボタンを押すたび、残り回数があるCPUも同じタイミングで1部屋進みます。</Bullet>
-          <Bullet>プレイヤー終了後もCPUに残り回数がある場合、CPUは3秒ごとに1部屋進み、全員終了後に順位を確定します。</Bullet>
+          <Bullet>プレイヤー終了後もCPUに残り回数がある場合、CPUは自動で進みます。1行動ごとに効果音が鳴り、5行動進むごとに行動速度が2倍になります。</Bullet>
           <Bullet>CPUもゲーム中にアイテムを獲得・使用することがあります。</Bullet>
           <Bullet>週間トロフィーは毎週月曜0:00(JST)にリセットされ、前週最終値は総合トロフィーランキングの自己ベスト候補になります。</Bullet>
         </HelpSection>
