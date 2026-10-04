@@ -1305,13 +1305,13 @@ export default function InfiniteElevator(){
 
         {battleActive&&battleRoom&&battleRole&&(()=>{
           const opponents=getBattlePlayers(battleRoom).filter(({role})=>role!==battleRole);
-          return <VStack position="absolute" top={{base:'184px',md:'12px'}} right={{base:'6px',md:'12px'}} zIndex={27} spacing={{base:1,md:1.5}} w={{base:'118px',md:'220px'}} align="stretch" pointerEvents="none">
+          return <Stack direction={{base:'row',md:'column'}} position="absolute" top={{base:'184px',md:'12px'}} left={{base:'6px',md:'auto'}} right={{base:'6px',md:'12px'}} zIndex={27} spacing={{base:1,md:1.5}} w={{base:'auto',md:'220px'}} align="stretch" pointerEvents="none">
             {opponents.map(({role,player})=>{
               const opp=player.progress;
               const oppStage=stageCatalog.find(stage=>stage.title===(opp.roomTitle||'エレベーターホール'));
               const oppImage=oppStage?.image?`${process.env.NEXT_PUBLIC_BASE_PATH||''}/${oppStage.image}`:null;
               const phaseLabel=opp.finished?'終了':opp.phase==='dialogue'?'会話':opp.phase==='moving'?'移動':opp.phase==='event'?'イベント':'操作中';
-              return <Box key={role} position="relative" h={{base:'62px',md:'98px'}} overflow="hidden" bg="#050608" bgImage={oppImage?`linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.55)), url("${oppImage}")`:oppStage?.bg} bgSize="cover" bgPosition="center" border="1px solid rgba(235,112,122,.68)" borderRadius="8px" boxShadow="0 8px 22px rgba(0,0,0,.52)">
+              return <Box key={role} position="relative" flex={{base:1,md:'none'}} minW={0} h={{base:'62px',md:'98px'}} overflow="hidden" bg="#050608" bgImage={oppImage?`linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.55)), url("${oppImage}")`:oppStage?.bg} bgSize="cover" bgPosition="center" border="1px solid rgba(235,112,122,.68)" borderRadius="8px" boxShadow="0 8px 22px rgba(0,0,0,.52)">
                 <Box position="absolute" inset={0} bg="linear-gradient(180deg,rgba(0,0,0,.62),transparent 42%,rgba(0,0,0,.78))"/>
                 <HStack position="absolute" top="4px" left="5px" right="5px" justify="space-between" spacing={1}>
                   <Text fontSize={{base:'6px',md:'8px'}} color="white" fontWeight="900" noOfLines={1}>{player.name}</Text>
@@ -1324,7 +1324,7 @@ export default function InfiniteElevator(){
                 <HStack position="absolute" bottom="3px" left="5px" right="5px" justify="space-between"><Text fontSize={{base:'5px',md:'7px'}} color="cyan.100" fontWeight="800">{phaseLabel}</Text><Text fontSize={{base:'5px',md:'7px'}} color="whiteAlpha.800">残り{opp.turns}</Text></HStack>
               </Box>;
             })}
-          </VStack>;
+          </Stack>;
         })()}
 
         {battleActive&&battleRunFinished&&battleRoom&&battleRole&&(()=>{
@@ -1352,7 +1352,7 @@ export default function InfiniteElevator(){
           </Box>;
         })()}
 
-        <Flex flex="1" minH={0} position="relative" px={{base:2,md:4,lg:6}} pt={{base:battleActive?'184px':'158px',md:'154px',lg:'158px'}} pb={roomIntro?{base:'8px',md:'12px',lg:'14px'}:{base:'82px',md:'92px',lg:'98px'}} align="center" justify="center" overflow="hidden" boxSizing="border-box">
+        <Flex flex="1" minH={0} position="relative" px={{base:2,md:4,lg:6}} pt={{base:battleActive?'252px':'158px',md:'154px',lg:'158px'}} pb={roomIntro?{base:'8px',md:'12px',lg:'14px'}:{base:'82px',md:'92px',lg:'98px'}} align="center" justify="center" overflow="hidden" boxSizing="border-box">
           {roomAtmosphere.label&&<Text position="absolute" top="10px" right="12px" fontSize="8px" letterSpacing=".22em" fontWeight="900" color="whiteAlpha.300">{roomAtmosphere.label}</Text>}{rareArrival>0&&<Box position="absolute" inset={0} zIndex={16} pointerEvents="none" overflow="hidden">
             <Box position="absolute" inset="-18%" bg={rareArrival===5?'radial-gradient(circle,rgba(253,224,71,.48) 0%,rgba(250,204,21,.18) 28%,transparent 62%)':'radial-gradient(circle,rgba(244,63,94,.34) 0%,rgba(168,85,247,.14) 35%,transparent 65%)'} animation="rareArrival .9s ease-out both"/>
             <Center position="absolute" inset={0}>

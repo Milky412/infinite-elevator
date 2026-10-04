@@ -11,7 +11,7 @@ service cloud.firestore {
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 12
-        && request.resource.data.score is int
+        && requestgit .resource.data.score is int
         && request.resource.data.score >= 1
         && request.resource.data.score <= 100000000
         && request.resource.data.floor == request.resource.data.score
