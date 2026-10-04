@@ -666,3 +666,10 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - Added an in-game "タイトルに戻る" button for developer-mode runs.
 - Returning to title exits the current developer run but keeps Developer Mode enabled so settings can be adjusted again.
 - Center game UI spacing now uses the normal compact layout during developer runs.
+
+## v108 changes
+- Pirate hidden room key rates: copper 20%, silver 10%, gold 3%, diamond 0.3% per box.
+- Removed the key-rate/key-type explanatory text from the pirate room UI.
+- Key reveal visuals are now clearly differentiated by material/color/icon.
+- Acquired keys are now shown in the normal holdings HUD and inventory modal while remaining separate from the 3 item slots.
+- Fate Door choices now look like actual doors and play an opening/progression animation before success/failure resolves.
