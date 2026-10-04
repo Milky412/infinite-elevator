@@ -624,3 +624,13 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - PC版は従来どおり右側の縦並びを維持。
 - 観戦モードの大画面表示は変更なし。
 - 横並びと中央UIが重ならないよう、スマホ対戦時のみ中央コンテンツの上余白を調整。
+
+## v102
+- スマホ対戦時の横並びLIVE画面を上部HUD直下へ移動し、不要な縦方向の隙間を削除しました。
+- LIVE画面のサイズ・横並びレイアウト・PC版・観戦モードは変更していません。
+
+## v103 - Battle finish race-condition fix
+- Fixed a race where simultaneous progress writes could overwrite another player's `finished: true` with stale `players` data.
+- Normal live updates now write only the current player's progress fields instead of rewriting the whole `players` map.
+- Final completion uses a Firestore transaction so 2-4 simultaneous finishes are serialized safely.
+- A finished client automatically retries its final completion sync every 2.5 seconds until Firestore confirms it, preventing spectator/result screens from waiting forever after a transient network failure.

@@ -549,9 +549,28 @@ export default function InfiniteElevator(){
     if(!battleActive||!battleRunFinished||!battleRoom||!battleRole||battleResult.isOpen)return;
     const players=getBattlePlayers(battleRoom);
     const me=battleRoom.players?.[battleRole];
-    const allFinished=players.length===battleRoom.maxPlayers&&players.every(({player})=>player.progress.finished);
+    const allFinished=players.length===battleRoom.maxPlayers&&players.every(({player})=>player.progress.finished===true);
     if(me?.progress.finished&&allFinished) battleResult.onOpen();
   },[battleActive,battleRunFinished,battleRoom,battleRole,battleResult.isOpen]);
+
+  // 最終状態の送信が一時的な通信エラーで失敗しても、観戦待機で固まらないよう再送する。
+  // Firestore 側で自分の finished=true を確認できた時点で interval は自動停止する。
+  useEffect(()=>{
+    if(!battleActive||!battleRunFinished||!battleCode||!battleRole||!battleRoom)return;
+    const me=battleRoom.players?.[battleRole];
+    if(me?.progress.finished)return;
+    let sending=false;
+    const resend=()=>{
+      if(sending)return;
+      sending=true;
+      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true,roomTitle:room.title,phase:'finished'})
+        .catch(()=>{})
+        .finally(()=>{sending=false;});
+    };
+    resend();
+    const timer=window.setInterval(resend,2500);
+    return ()=>window.clearInterval(timer);
+  },[battleActive,battleRunFinished,battleCode,battleRole,battleRoom,s.floor,room.title]);
 
   useEffect(()=>{
     if(!battleRunFinished||!battleRoom||!battleRole)return;
@@ -668,7 +687,7 @@ export default function InfiniteElevator(){
     if(battleActive&&battleCode&&battleRole){
       // 最終操作確定後に完了を送信。結果画面は両者の完了を受信してから開く。
       setBattleRunFinished(true);
-      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true,roomTitle:room.title,phase:'finished'});
+      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true,roomTitle:room.title,phase:'finished'}).catch(()=>{});
       return;
     }
     setGameover(true);
@@ -1305,7 +1324,7 @@ export default function InfiniteElevator(){
 
         {battleActive&&battleRoom&&battleRole&&(()=>{
           const opponents=getBattlePlayers(battleRoom).filter(({role})=>role!==battleRole);
-          return <Stack direction={{base:'row',md:'column'}} position="absolute" top={{base:'184px',md:'12px'}} left={{base:'6px',md:'auto'}} right={{base:'6px',md:'12px'}} zIndex={27} spacing={{base:1,md:1.5}} w={{base:'auto',md:'220px'}} align="stretch" pointerEvents="none">
+          return <Stack direction={{base:'row',md:'column'}} position="absolute" top={{base:'138px',md:'12px'}} left={{base:'6px',md:'auto'}} right={{base:'6px',md:'12px'}} zIndex={27} spacing={{base:1,md:1.5}} w={{base:'auto',md:'220px'}} align="stretch" pointerEvents="none">
             {opponents.map(({role,player})=>{
               const opp=player.progress;
               const oppStage=stageCatalog.find(stage=>stage.title===(opp.roomTitle||'エレベーターホール'));

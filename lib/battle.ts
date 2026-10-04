@@ -108,16 +108,44 @@ export async function cancelBattleRoom(code:string){
 
 export async function updateBattleProgress(code:string,role:BattleRole,progress:BattleProgress){
   if(!db) return;
-  const user=await ensureUser(); const ref=doc(db,'battleRooms',code); const snap=await getDoc(ref);
-  if(!snap.exists()) return; const room=snap.data() as BattleRoom;
-  const player=room.players?.[role];
-  if(!player||player.uid!==user.uid) return;
-  const nextProgress:BattleProgress={
-    floor:Math.max(1,Math.floor(progress.floor)),turns:Math.max(0,Math.floor(progress.turns)),finished:Boolean(progress.finished),
-    roomTitle:(progress.roomTitle||'エレベーターホール').slice(0,40),phase:progress.finished?'finished':(progress.phase||'ready')
-  };
-  const nextPlayers={...(room.players||{}),[role]:{...player,progress:nextProgress}};
-  const joined=roles.flatMap(r=>nextPlayers[r]?[nextPlayers[r]!]:[]);
-  const allFinished=joined.length===room.maxPlayers&&joined.every(p=>p.progress?.finished);
-  await updateDoc(ref,{players:nextPlayers,status:allFinished?'finished':room.status,updatedAt:serverTimestamp()});
+  const user=await ensureUser();
+  const ref=doc(db,'battleRooms',code);
+  const floor=Math.max(1,Math.floor(progress.floor));
+  const turns=Math.max(0,Math.floor(progress.turns));
+  const roomTitle=(progress.roomTitle||'エレベーターホール').slice(0,40);
+
+  // 通常の進行同期では players 全体を書き戻さない。
+  // 以前は複数人が同時更新すると、古い snapshot の players で他プレイヤーの
+  // finished=true を上書きしてしまい、全員終了判定が永久に成立しないことがあった。
+  if(!progress.finished){
+    await updateDoc(ref,{
+      [`players.${role}.progress.floor`]:floor,
+      [`players.${role}.progress.turns`]:turns,
+      [`players.${role}.progress.roomTitle`]:roomTitle,
+      [`players.${role}.progress.phase`]:progress.phase||'ready',
+      updatedAt:serverTimestamp(),
+    });
+    return;
+  }
+
+  // 終了確定は transaction で現在の最新状態を読み、本人の finished だけを確定。
+  // 同時に複数人が終了しても Firestore が競合を再試行するため、終了状態を失わない。
+  await runTransaction(db,async tx=>{
+    const snap=await tx.get(ref);
+    if(!snap.exists()) throw new Error('対戦ルームが見つかりません');
+    const room=snap.data() as BattleRoom;
+    const player=room.players?.[role];
+    if(!player||player.uid!==user.uid) throw new Error('対戦プレイヤーを確認できません');
+
+    const finalProgress:BattleProgress={floor,turns,finished:true,roomTitle,phase:'finished'};
+    const nextPlayers={...(room.players||{}),[role]:{...player,progress:finalProgress}};
+    const joined=roles.flatMap(r=>nextPlayers[r]?[nextPlayers[r]!]:[]);
+    const allFinished=joined.length===room.maxPlayers&&joined.every(p=>p.progress?.finished===true);
+
+    tx.update(ref,{
+      [`players.${role}.progress`]:finalProgress,
+      ...(allFinished?{status:'finished' as const}:{}),
+      updatedAt:serverTimestamp(),
+    });
+  });
 }
