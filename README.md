@@ -683,3 +683,7 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - 天国への階段
 
 画像は GitHub Pages 向けに WebP（最大幅1280px）へ軽量化し、`public/stages/` に配置しています。
+
+## v110 changes
+- Pirate hidden room key rates adjusted per box: copper 20%, silver 5%, gold 1%, diamond 0.1%.
+- Sealed treasure vault chest opening now has staged animation: shake -> glow -> lid/open reveal -> reward.
