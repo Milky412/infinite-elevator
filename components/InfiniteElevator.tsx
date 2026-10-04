@@ -35,6 +35,9 @@ export default function InfiniteElevator(){
   const [rankingViews,setRankingViews]=useState<Record<RankingScope,{rows:RankingEntry[];mine:MyRankingResult|null;loaded:boolean;cached:boolean}>>({monthly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
   const [rankingStatus,setRankingStatus]=useState<'connecting'|'online'|'offline'|'error'>(firebaseReady?'connecting':'offline'); const [scoreSubmitted,setScoreSubmitted]=useState(false); const [scoreSubmitting,setScoreSubmitting]=useState(false); const [scoreSaveMessage,setScoreSaveMessage]=useState(''); const scoreSubmitLockRef=useRef(false); const [playerId,setPlayerId]=useState(''); const [scorePreview,setScorePreview]=useState<ScorePreviewBundle|null>(null); const [scorePreviewLoading,setScorePreviewLoading]=useState(false); const [scorePreviewError,setScorePreviewError]=useState(''); const [localHistorySummary,setLocalHistorySummary]=useState({count:0,best:0}); const [localPlayHistory,setLocalPlayHistory]=useState(()=>[] as ReturnType<typeof loadPlayHistory>); const runRecordedRef=useRef(false); const [forcedShop,setForcedShop]=useState(false); const [soundOn,setSoundOn]=useState(true);
   const [developerMode,setDeveloperMode]=useState(false);
+  // スタート画面では先にプレイモードを選び、共通の『ゲームを始める』から各モードへ進む。
+  const [playMode,setPlayMode]=useState<'solo'|'computer'|'online'>('solo');
+  const [computerBattleTab,setComputerBattleTab]=useState(0);
   const [masterActive,setMasterActive]=useState(false); const masterRoomQueueRef=useRef<string[]>([]);
   const [masterFloor,setMasterFloor]=useState(1); const [masterLuck,setMasterLuck]=useState(0); const [masterTurns,setMasterTurns]=useState(10); const [masterMoney,setMasterMoney]=useState(1000);
   const [masterStartStage,setMasterStartStage]=useState('エレベーターホール'); const [masterQueueDraft,setMasterQueueDraft]=useState(''); const [masterNextStages,setMasterNextStages]=useState<string[]>([]);
@@ -1136,9 +1139,36 @@ export default function InfiniteElevator(){
         <Flex mt="auto" px={{base:4,md:8,lg:16}} pb={{base:5,md:7,lg:8}} minH="0" justify="center" align="flex-end">
           <Box w="100%" maxW={{base:'100%',md:'560px',lg:'680px'}} bg="linear-gradient(180deg,rgba(8,9,11,.78),rgba(4,5,6,.90))" border="1px solid rgba(218,216,208,.26)" borderRadius="8px" boxShadow="0 18px 48px rgba(0,0,0,.48)" p={{base:3,md:4}} backdropFilter="blur(9px)">
             <Center>
-              <Box position="relative" w="100%" maxW="320px">
-              <Button mx="auto" display="flex" w="calc(100% - 40px)" maxW="280px" h="56px" bg={developerMode?'linear-gradient(180deg,#49350c,#161007)':'linear-gradient(180deg,#17191c,#090a0c)'} color={developerMode?'#fff2bd':'#f1eee6'} border="1px solid" borderColor={developerMode?'rgba(250,204,21,.72)':'rgba(232,229,220,.46)'} borderRadius="2px" fontFamily="heading" letterSpacing={developerMode?'.10em':'.16em'} fontSize={developerMode?'sm':'md'} leftIcon={<FaPlay/>} boxShadow={developerMode?'inset 0 1px rgba(255,255,255,.08),0 0 24px rgba(250,204,21,.16)':'inset 0 1px rgba(255,255,255,.06),0 10px 28px rgba(0,0,0,.55)'} _hover={{bg:developerMode?'linear-gradient(180deg,#6a4b0b,#201508)':'linear-gradient(180deg,#3a171b,#12090b)',borderColor:developerMode?'#facc15':'#b8565c',color:'white'}} _active={{transform:'translateY(1px)'}} onClick={()=>developerMode?startMasterRun():start()}>{developerMode?'開発設定でゲームを始める':'ゲームを始める'}</Button>
-              <Box aria-hidden="true" position="absolute" top="0" right="0" w="28px" h="56px" opacity={0} cursor="default" onClick={(e)=>{e.stopPropagation();setDeveloperMode(v=>!v);}}/>
+              <Box position="relative" w="100%" maxW="620px">
+              {!developerMode&&<Box mt={1}>
+                <Text mb={2} textAlign="center" fontSize="9px" color="gray.400" fontWeight="700" letterSpacing=".12em">PLAY MODE</Text>
+                <SimpleGrid columns={3} spacing={{base:1,md:2}}>
+                  {([
+                    ['solo','ソロプレイ',FaPlay,'ひとりで上層を目指す'],
+                    ['computer','コンピュータ戦',FaTrophy,'CPU3人とトロフィー対戦'],
+                    ['online','オンライン対戦',FaBolt,'ルームでリアルタイム対戦'],
+                  ] as const).map(([mode,label,icon,desc])=>{
+                    const active=playMode===mode;
+                    return <Button key={mode} h={{base:'62px',md:'72px'}} px={{base:1,md:2}} whiteSpace="normal" bg={active?'linear-gradient(180deg,rgba(93,31,38,.96),rgba(28,10,13,.96))':'rgba(7,8,10,.78)'} color={active?'white':'rgba(237,234,225,.78)'} border="1px solid" borderColor={active?'rgba(214,92,102,.82)':'rgba(180,184,186,.22)'} borderRadius="4px" boxShadow={active?'0 0 18px rgba(170,45,56,.20),inset 0 1px rgba(255,255,255,.06)':'none'} _hover={{bg:active?'linear-gradient(180deg,#70232b,#1c0a0d)':'rgba(38,20,23,.90)',borderColor:'rgba(174,66,74,.68)'}} onClick={()=>setPlayMode(mode)}>
+                      <VStack spacing={.5} minW={0}><Icon as={icon} boxSize={{base:3.5,md:4}}/><Text fontFamily="heading" fontSize={{base:'9px',md:'11px'}} fontWeight="900" noOfLines={1}>{label}</Text><Text display={{base:'none',md:'block'}} fontSize="7px" color={active?'rgba(255,255,255,.68)':'gray.500'} fontWeight="500">{desc}</Text></VStack>
+                    </Button>
+                  })}
+                </SimpleGrid>
+
+                <Box mt={2.5} minH={{base:'58px',md:'68px'}} px={3} py={2.5} bg="rgba(0,0,0,.34)" border="1px solid rgba(255,255,255,.09)" borderRadius="5px">
+                  {playMode==='solo'&&<HStack justify="center" spacing={2}><Icon as={FaPlay} color="gray.300"/><Text fontSize="10px" color="gray.300">通常ルールでひとりプレイを開始します。</Text></HStack>}
+                  {playMode==='computer'&&<Flex align="center" justify="space-between" gap={2} wrap="wrap"><HStack spacing={2}><Icon as={FaTrophy} color="yellow.300"/><Box><Text fontSize="8px" color="gray.500">現在のトロフィー</Text><Text fontFamily="heading" fontSize="xl" color="yellow.100" fontWeight="900">{trophyProfile.trophies}</Text></Box></HStack><Button size="xs" variant="outline" colorScheme="yellow" onClick={()=>{setComputerBattleTab(1);computerBattleMenu.onOpen();void loadTrophyRankingMode(trophyRankingMode);}}>トロフィーランキング</Button></Flex>}
+                  {playMode==='online'&&<HStack justify="center" spacing={2}><Icon as={FaBolt} color="cyan.200"/><Text fontSize="10px" color="gray.300">開始後にルーム作成・参加画面へ進みます。</Text></HStack>}
+                </Box>
+              </Box>}
+
+              <Button mt={2.5} mx="auto" display="flex" w="calc(100% - 40px)" maxW="320px" h="56px" bg={developerMode?'linear-gradient(180deg,#49350c,#161007)':'linear-gradient(180deg,#17191c,#090a0c)'} color={developerMode?'#fff2bd':'#f1eee6'} border="1px solid" borderColor={developerMode?'rgba(250,204,21,.72)':'rgba(232,229,220,.46)'} borderRadius="2px" fontFamily="heading" letterSpacing={developerMode?'.10em':'.16em'} fontSize={developerMode?'sm':'md'} leftIcon={<FaPlay/>} boxShadow={developerMode?'inset 0 1px rgba(255,255,255,.08),0 0 24px rgba(250,204,21,.16)':'inset 0 1px rgba(255,255,255,.06),0 10px 28px rgba(0,0,0,.55)'} _hover={{bg:developerMode?'linear-gradient(180deg,#6a4b0b,#201508)':'linear-gradient(180deg,#3a171b,#12090b)',borderColor:developerMode?'#facc15':'#b8565c',color:'white'}} _active={{transform:'translateY(1px)'}} onClick={()=>{
+                if(developerMode){startMasterRun();return;}
+                if(playMode==='solo'){start();return;}
+                if(playMode==='computer'){startRankedRun();return;}
+                setBattleError('');setBattleCodeInput('');battleLobby.onOpen();
+              }}>{developerMode?'開発設定でゲームを始める':'ゲームを始める'}</Button>
+              <Box aria-hidden="true" position="absolute" bottom="0" right={{base:'8px',md:'70px'}} w="28px" h="56px" opacity={0} cursor="default" onClick={(e)=>{e.stopPropagation();setDeveloperMode(v=>!v);}}/>
               </Box>
             </Center>
             {developerMode&&<Box mt={2.5} maxH={{base:'34vh',md:'42vh'}} overflowY="auto" px={2.5} py={2.5} bg="rgba(36,27,7,.88)" border="1px solid rgba(250,204,21,.42)" borderRadius="6px" boxShadow="inset 0 0 28px rgba(250,204,21,.04)">
@@ -1151,7 +1181,7 @@ export default function InfiniteElevator(){
               <Box mt={2}><Text mb={1} fontSize="8px" color="yellow.100">次回以降の部屋</Text><HStack spacing={1}><Select size="sm" h="30px" value={masterQueueDraft} onChange={e=>setMasterQueueDraft(e.target.value)} bg="#17130a" borderColor="rgba(250,204,21,.22)"><option value="">部屋を選択</option>{stageCatalog.filter(x=>x.title!=='エレベーターホール').map(stage=><option key={stage.title} value={stage.title}>{stage.title}</option>)}</Select><Button size="xs" h="30px" colorScheme="yellow" color="black" isDisabled={!masterQueueDraft} onClick={()=>{if(masterQueueDraft){setMasterNextStages(v=>[...v,masterQueueDraft]);setMasterQueueDraft('');}}}>追加</Button></HStack>{masterNextStages.length>0&&<HStack mt={1} spacing={1} overflowX="auto">{masterNextStages.map((title,i)=><Badge key={`${title}-${i}`} flexShrink={0} colorScheme="yellow">{i+1}. {title}</Badge>)}<Button size="xs" h="22px" flexShrink={0} variant="ghost" colorScheme="red" onClick={()=>setMasterNextStages([])}>全解除</Button></HStack>}</Box>
               <Text mt={2} fontSize="8px" color="yellow.200">開発者モードのプレイは最高記録・履歴・ランキングへ保存されません。ステージ図鑑では任意ステージから直接開始できます。</Text>
             </Box>}
-            <SimpleGrid mt={2.5} columns={{base:2,lg:6}} spacing={{base:1.5,lg:2}}>{[[FaTrophy,'コンピュータ戦',()=>{computerBattleMenu.onOpen();}],[FaRankingStar,'ランキング',openRanking],[FaBolt,'オンライン対戦',()=>{setBattleError('');setBattleCodeInput('');battleLobby.onOpen();}],[FaCircleQuestion,'ルール説明',rules.onOpen],[FaBookOpen,'ステージ図鑑',guide.onOpen],[FaGem,'アイテム図鑑',itemGuide.onOpen]].map(([ic,label,fn]:any)=><Button key={label} size="sm" minH="42px" bg="rgba(7,8,10,.78)" color="rgba(237,234,225,.84)" border="1px solid rgba(180,184,186,.24)" borderRadius="2px" leftIcon={<Icon as={ic}/>} fontFamily="heading" fontSize="11px" letterSpacing=".08em" _hover={{bg:'rgba(54,18,22,.88)',borderColor:'rgba(174,66,74,.75)',color:'white'}} onClick={fn}>{label}</Button>)}</SimpleGrid>
+            <SimpleGrid mt={2.5} columns={{base:2,lg:4}} spacing={{base:1.5,lg:2}}>{[[FaRankingStar,'ランキング',openRanking],[FaCircleQuestion,'ルール説明',rules.onOpen],[FaBookOpen,'ステージ図鑑',guide.onOpen],[FaGem,'アイテム図鑑',itemGuide.onOpen]].map(([ic,label,fn]:any)=><Button key={label} size="sm" minH="42px" bg="rgba(7,8,10,.78)" color="rgba(237,234,225,.84)" border="1px solid rgba(180,184,186,.24)" borderRadius="2px" leftIcon={<Icon as={ic}/>} fontFamily="heading" fontSize="11px" letterSpacing=".08em" _hover={{bg:'rgba(54,18,22,.88)',borderColor:'rgba(174,66,74,.75)',color:'white'}} onClick={fn}>{label}</Button>)}</SimpleGrid>
           </Box>
         </Flex>
       </Flex>}
@@ -1383,7 +1413,7 @@ export default function InfiniteElevator(){
         </HelpSection>
       </InfoModal>
       <Modal isOpen={computerBattleMenu.isOpen} onClose={computerBattleMenu.onClose} isCentered><ModalOverlay bg="blackAlpha.850" backdropFilter="blur(7px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW={{base:'360px',md:'520px'}} border="1px solid rgba(250,204,21,.28)" borderRadius="8px"><ModalHeader fontFamily="heading" color="#eee9df">コンピュータ戦</ModalHeader><ModalBody>
-        <Tabs variant="soft-rounded" colorScheme="yellow" size="sm" onChange={i=>{if(i===1)void loadTrophyRankingMode(trophyRankingMode);}}>
+        <Tabs index={computerBattleTab} variant="soft-rounded" colorScheme="yellow" size="sm" onChange={i=>{setComputerBattleTab(i);if(i===1)void loadTrophyRankingMode(trophyRankingMode);}}>
           <TabList mb={4}><Tab flex="1">対戦する</Tab><Tab flex="1">ランキング</Tab></TabList>
           <TabPanels>
             <TabPanel p={0}>
