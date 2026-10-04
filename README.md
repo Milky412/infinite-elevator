@@ -700,3 +700,15 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - Changed 運気ドリンク base price to 100円 (20% half-price sale: 50円).
 - Enhanced 封印された宝物庫 opening animation with shaking, light leak, lid-opening motion, and reward reveal.
 - Added an explicit safety guard so developer-mode test runs never submit rankings/Firebase score data.
+
+## v113 表示文言整理
+- エレベーター上昇演出から `NORMAL / BOOSTER / LIMIT BREAK / OVERDRIVE / CHANCE UP` 等の段階名を削除しました。
+- 演出そのもの、上昇量、昇格確率・ゲーム処理は変更していません。
+- `ELEVATOR SYSTEM`, `HELL DICE`, `FLOOR TRANSITION` など、画面上に残っていた装飾的な英語表示を削除または自然な日本語へ整理しました。
+- 対戦画面の `YOU / READY / LIVE / END / YOU WIN` 等も日本語表示へ整理しました。
+- ステージ図鑑や一部結果表示の英語ラベルも整理しました。
+
+## v114 changes
+- Removed text-based hype during climb / slot / ultimate roulette presentation where animation and decoration already communicate intensity.
+- Cat room: 30% chance to find a four-leaf clover, Luck +2. Removed "no change" wording.
+- Dog room: 30% chance to find a small hourglass, Turns +1. Removed "no change" wording.
