@@ -673,3 +673,13 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - Key reveal visuals are now clearly differentiated by material/color/icon.
 - Acquired keys are now shown in the normal holdings HUD and inventory modal while remaining separate from the 3 item slots.
 - Fate Door choices now look like actual doors and play an opening/progression animation before success/failure resolves.
+
+## v109 追加ステージ背景
+生成した背景画像を以下の5ステージへ組み込みました。
+- スクラッチくじの部屋
+- 運命の扉
+- 海賊船の隠し部屋
+- 封印された宝物庫
+- 天国への階段
+
+画像は GitHub Pages 向けに WebP（最大幅1280px）へ軽量化し、`public/stages/` に配置しています。
