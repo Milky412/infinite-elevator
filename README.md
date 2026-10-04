@@ -687,3 +687,16 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 ## v110 changes
 - Pirate hidden room key rates adjusted per box: copper 20%, silver 5%, gold 1%, diamond 0.1%.
 - Sealed treasure vault chest opening now has staged animation: shake -> glow -> lid/open reveal -> reward.
+
+## v111 changes
+- Added Tier1 "猫の部屋" and "犬の部屋".
+- Each room has a single interaction button (猫と遊ぶ / 犬と遊ぶ) with a short healing animation.
+- These rooms intentionally cause no gameplay changes: no floor, luck, turns, money, or item changes.
+- Added both rooms to the stage catalog and developer-mode stage routing.
+
+## v112 changes
+- Added generated backgrounds for 猫の部屋 / 犬の部屋 (`stage-cat-room.webp`, `stage-dog-room.webp`).
+- Moved 自動販売機 from Tier2 to Tier1.
+- Changed 運気ドリンク base price to 100円 (20% half-price sale: 50円).
+- Enhanced 封印された宝物庫 opening animation with shaking, light leak, lid-opening motion, and reward reveal.
+- Added an explicit safety guard so developer-mode test runs never submit rankings/Firebase score data.
