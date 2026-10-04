@@ -659,3 +659,10 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - ステージ図鑑も開発者モード表示へ変化し、任意ステージへ直接移動できます。
 - 開発プレイ中はHUDが開発者モード用に変化し、階/運気/残り回数/所持金の即時変更、次室予約、アイテム追加、ステージ図鑑からの直接移動が可能です。
 - 開発者モードのプレイは最高記録・ローカル履歴・月間/総合ランキングへ保存されません。
+
+## v107 changes
+- Developer-mode settings are now available only on the title screen before starting a run.
+- Removed the in-game developer settings panel/HUD controls.
+- Added an in-game "タイトルに戻る" button for developer-mode runs.
+- Returning to title exits the current developer run but keeps Developer Mode enabled so settings can be adjusted again.
+- Center game UI spacing now uses the normal compact layout during developer runs.

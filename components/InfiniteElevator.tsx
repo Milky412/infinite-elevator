@@ -1393,6 +1393,7 @@ export default function InfiniteElevator(){
             <HStack spacing={1.5} align="center" justify="flex-start" w="100%">
               <Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={inventoryPanel.onOpen}>アイテム {s.items.length}/3</Button>
               <Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={logPanel.onOpen}>ログ</Button>
+              {masterActive&&<Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="yellow.400" color="yellow.100" bg="rgba(72,51,8,.58)" _hover={{bg:'rgba(110,76,8,.76)'}} onClick={()=>{setGameover(false);setMasterActive(false);masterRoomQueueRef.current=[];setMenu(true);}}>タイトルに戻る</Button>}
               {(s.ringBuff.active||s.mirrorMultiplier>1||s.partySet)&&<HStack spacing={1} flexWrap="wrap">{s.ringBuff.active&&<Badge fontSize="7px" colorScheme="green">指輪+{s.ringBuff.amount} / 残り{s.ringBuff.turns}</Badge>}{s.mirrorMultiplier>1&&<Badge fontSize="7px" colorScheme="cyan">鏡×{s.mirrorMultiplier}</Badge>}{s.partySet&&<Badge fontSize="7px" colorScheme="pink">演出UP</Badge>}</HStack>}
             </HStack>
             <Box w="100%" overflowX="auto" overflowY="hidden" sx={{WebkitOverflowScrolling:'touch'}}>
@@ -1400,14 +1401,6 @@ export default function InfiniteElevator(){
                 {s.items.length===0?<Text fontSize="8px" color="gray.500" px={1}>所持アイテムなし</Text>:s.items.map((it,i)=>{const pal=itemPalette(it);return <Button key={`${it.id}-${i}`} h={{base:'27px',md:'32px'}} minW="auto" px={2} flexShrink={0} justifyContent="flex-start" bg={pal.bg} color={pal.text} border="1px solid" borderColor={pal.border} borderRadius="6px" _hover={{filter:'brightness(1.12)'}} onClick={()=>setSelected(i)}><HStack spacing={1.5}><Icon as={it.icon||FaGift} boxSize={3} color={pal.icon}/><Text fontSize="8px" fontWeight="900" whiteSpace="nowrap">{it.name}{it.type==='gem'?` ×${it.count||1}`:''}</Text></HStack></Button>})}
               </HStack>
             </Box>
-            {masterActive&&<Box w="100%" p={{base:1.5,md:2}} bg="rgba(55,39,5,.86)" border="1px solid rgba(250,204,21,.36)" borderRadius="7px">
-              <HStack justify="space-between" mb={1.5}><Badge colorScheme="yellow" color="black" fontSize="7px">開発者モード</Badge><Button size="xs" h="22px" variant="outline" colorScheme="yellow" onClick={guide.onOpen}>ステージ図鑑</Button></HStack>
-              <Grid templateColumns={{base:'repeat(4,minmax(0,1fr))',md:'repeat(4,minmax(70px,1fr))'}} gap={1}>
-                {[['階',s.floor,'floor'],['運',s.luck,'luck'],['回',s.turnsLeft,'turnsLeft'],['円',s.money,'money']].map(([label,value,key]:any)=><Box key={key}><Text fontSize="7px" color="yellow.100">{label}</Text><Input h="27px" px={1.5} type="number" value={value} fontSize="10px" bg="rgba(0,0,0,.38)" borderColor="rgba(250,204,21,.22)" onChange={e=>{const n=Number(e.target.value)||0;setS(x=>({...x,[key]:key==='floor'?Math.max(1,Math.floor(n)):Math.floor(n)}));}}/></Box>)}
-              </Grid>
-              <HStack mt={1.5} spacing={1}><Select h="28px" size="sm" fontSize="9px" value={devRuntimeStage} onChange={e=>setDevRuntimeStage(e.target.value)} bg="#17130a" borderColor="rgba(250,204,21,.22)"><option value="">次の部屋を選択</option>{stageCatalog.filter(x=>x.title!=='エレベーターホール').map(stage=><option key={stage.title} value={stage.title}>{stage.title}</option>)}</Select><Button size="xs" h="28px" colorScheme="yellow" color="black" isDisabled={!devRuntimeStage} onClick={()=>{if(devRuntimeStage){masterRoomQueueRef.current.unshift(devRuntimeStage);setDevRuntimeStage('');}}}>次室予約</Button></HStack>
-              <HStack mt={1} spacing={1}><Select h="28px" size="sm" fontSize="9px" value={devGrantItem} onChange={e=>setDevGrantItem(e.target.value as ItemId)} bg="#17130a" borderColor="rgba(250,204,21,.22)">{masterItemIds.map(id=><option key={id} value={id}>{makeItem(id,1).name.replace('★1','')}</option>)}</Select><Input h="28px" w="62px" px={1.5} type="number" min={1} value={devGrantN} fontSize="9px" onChange={e=>setDevGrantN(Math.max(1,Number(e.target.value)||1))} bg="rgba(0,0,0,.38)" borderColor="rgba(250,204,21,.22)"/><Button size="xs" h="28px" colorScheme="yellow" color="black" onClick={()=>addItem(makeItem(devGrantItem,Math.max(1,Math.floor(devGrantN||1))))}>追加</Button></HStack>
-            </Box>}
           </VStack>
         </Box>
 
@@ -1460,7 +1453,7 @@ export default function InfiniteElevator(){
           </Box>;
         })()}
 
-        <Flex flex="1" minH={0} position="relative" px={{base:2,md:4,lg:6}} pt={{base:battleActive?'252px':masterActive?'330px':'158px',md:battleActive?'154px':masterActive?'272px':'154px',lg:battleActive?'158px':masterActive?'276px':'158px'}} pb={roomIntro?{base:'8px',md:'12px',lg:'14px'}:{base:'82px',md:'92px',lg:'98px'}} align="center" justify="center" overflow="hidden" boxSizing="border-box">
+        <Flex flex="1" minH={0} position="relative" px={{base:2,md:4,lg:6}} pt={{base:battleActive?'252px':'158px',md:battleActive?'154px':'154px',lg:battleActive?'158px':'158px'}} pb={roomIntro?{base:'8px',md:'12px',lg:'14px'}:{base:'82px',md:'92px',lg:'98px'}} align="center" justify="center" overflow="hidden" boxSizing="border-box">
           {roomAtmosphere.label&&<Text position="absolute" top="10px" right="12px" fontSize="8px" letterSpacing=".22em" fontWeight="900" color="whiteAlpha.300">{roomAtmosphere.label}</Text>}{rareArrival>0&&<Box position="absolute" inset={0} zIndex={16} pointerEvents="none" overflow="hidden">
             <Box position="absolute" inset="-18%" bg={rareArrival===5?'radial-gradient(circle,rgba(253,224,71,.48) 0%,rgba(250,204,21,.18) 28%,transparent 62%)':'radial-gradient(circle,rgba(244,63,94,.34) 0%,rgba(168,85,247,.14) 35%,transparent 65%)'} animation="rareArrival .9s ease-out both"/>
             <Center position="absolute" inset={0}>
