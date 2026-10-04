@@ -1,0 +1,42 @@
+Infinite Elevator - Development Requirements
+============================================
+
+Runtime / Tools
+---------------
+Node.js: 20.x or newer recommended
+npm: 10.x or newer recommended
+Git: recommended for version control / GitHub Pages deployment
+
+Application Dependencies
+------------------------
+@chakra-ui/react ^2.10.9
+@emotion/react ^11.14.0
+@emotion/styled ^11.14.0
+framer-motion ^11.18.2
+next 14.2.31
+react 18.3.1
+react-dom 18.3.1
+react-icons ^5.5.0
+firebase ^12.3.0
+
+Development Dependencies
+------------------------
+@types/node ^22.15.3
+@types/react ^18.3.20
+@types/react-dom ^18.3.6
+typescript ^5.8.3
+
+Setup
+-----
+1. Install Node.js and npm.
+2. Run: npm install
+3. Copy .env.example to .env.local and fill in the Firebase values when Firebase features are used.
+4. Run: npm run dev
+5. Open the local URL shown by Next.js in your browser.
+
+Notes
+-----
+- This is a Next.js / TypeScript project, not a Python project.
+- npm installs the actual package dependencies from package.json.
+- This file is a human-readable environment/dependency reference.
+- See setup/README.md for the full startup and deployment procedure.

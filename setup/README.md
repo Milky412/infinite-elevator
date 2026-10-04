@@ -1,11 +1,73 @@
 # Infinite Elevator セットアップ / 起動手順
 
-## 必要なもの
+## 依存関係
 
-- Node.js 20 推奨
-- npm
-- Git（GitHubへ公開する場合）
-- Firebaseプロジェクト（オンラインランキング・2人対戦を使う場合のみ）
+このアプリは **Next.js / React / TypeScript** で構成されています。Python の `requirements.txt` ではなく、実際の依存関係はプロジェクト直下の `package.json` で管理します。`requirement.txt` は人が確認しやすい一覧です。
+
+### 必要な実行環境
+
+- Node.js 20.x 以上推奨
+- npm 10.x 以上推奨
+- Git（GitHub Pagesへ公開する場合）
+- Firebaseプロジェクト（ランキング・2人対戦を使う場合のみ）
+
+バージョン確認:
+
+```bash
+node -v
+npm -v
+```
+
+### アプリ本体の依存パッケージ
+
+| パッケージ | バージョン | 主な用途 |
+| --- | --- | --- |
+| `next` | `14.2.31` | Next.js本体・ルーティング・ビルド |
+| `react` | `18.3.1` | UI描画 |
+| `react-dom` | `18.3.1` | ブラウザDOMへのReact描画 |
+| `@chakra-ui/react` | `^2.10.9` | UIコンポーネント |
+| `@emotion/react` | `^11.14.0` | Chakra UIのスタイル基盤 |
+| `@emotion/styled` | `^11.14.0` | スタイル付きコンポーネント |
+| `framer-motion` | `^11.18.2` | アニメーション |
+| `react-icons` | `^5.5.0` | アイコン |
+| `firebase` | `^12.3.0` | Firestore・匿名認証など |
+
+### 開発時の依存パッケージ
+
+| パッケージ | バージョン | 主な用途 |
+| --- | --- | --- |
+| `typescript` | `^5.8.3` | TypeScriptコンパイル・型チェック |
+| `@types/node` | `^22.15.3` | Node.js型定義 |
+| `@types/react` | `^18.3.20` | React型定義 |
+| `@types/react-dom` | `^18.3.6` | React DOM型定義 |
+
+### 依存関係のインストール
+
+プロジェクト直下で次を実行します。
+
+```bash
+npm install
+```
+
+`npm install` は `package.json` を読み、必要なライブラリを `node_modules/` にインストールします。`node_modules/` は容量が大きく環境ごとに再生成できるため、ZIPやGitへ含める必要はありません。
+
+依存関係を入れ直したい場合:
+
+```bash
+rm -rf node_modules
+npm install
+```
+
+Windows PowerShellの場合:
+
+```powershell
+Remove-Item -Recurse -Force node_modules
+npm install
+```
+
+依存関係の詳細一覧は、プロジェクト直下の `requirement.txt` と `package.json` も参照してください。
+
+---
 
 ## 1. ローカル起動
 
@@ -137,7 +199,13 @@ git push origin main
 
 ### `npm run dev` が起動しない
 
-Node.js のバージョンを確認してください。
+まず依存関係がインストール済みか確認してください。
+
+```bash
+npm install
+```
+
+その後、Node.js / npm のバージョンを確認してください。
 
 ```bash
 node -v
