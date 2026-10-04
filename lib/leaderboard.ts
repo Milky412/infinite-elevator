@@ -1,3 +1,4 @@
+// ランキングの読み込み・順位プレビュー・保存処理をまとめたデータアクセス層。
 import { signInAnonymously } from 'firebase/auth';
 import {
   collection,

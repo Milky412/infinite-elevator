@@ -1,3 +1,4 @@
+// ゲーム本体で共有する状態・部屋・アイテム型。
 import type { IconType } from 'react-icons';
 export type ItemType = 'consumable'|'passive'|'gem';
 export type ItemId = 'mirror'|'ring'|'sage_gem'|'party_set'|'money_tree'|'blessing_charm'|'shop_ticket'|'ruby'|'emerald'|'diamond'|'yata_mirror'|'kusanagi'|'immortal_mag';

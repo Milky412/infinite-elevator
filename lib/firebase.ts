@@ -1,3 +1,4 @@
+// Firebase初期化。環境変数が揃っている時だけオンライン機能を有効化する。
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';

@@ -1,3 +1,4 @@
+// 2人対戦ルームの作成・参加・進捗同期をFirestore経由で扱う。
 import { signInAnonymously } from 'firebase/auth';
 import {
   doc,

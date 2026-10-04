@@ -1,3 +1,4 @@
+// 端末内のプレイヤーID・プレイ履歴をlocalStorageへ保存/復元する。
 export const PLAYER_ID_KEY = 'infinite_elevator_player_id_v1';
 export const PLAY_HISTORY_KEY = 'infinite_elevator_play_history_v1';
 export const PLAY_HISTORY_LIMIT = 100;

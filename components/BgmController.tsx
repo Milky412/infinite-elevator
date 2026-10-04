@@ -1,3 +1,4 @@
+// スタート画面用MP3 BGMの再生/停止と音量状態を管理する。
 'use client';
 
 import { useEffect, useRef } from 'react';
