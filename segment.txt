@@ -1,0 +1,516 @@
+    if(!runRecordedRef.current){
+      runRecordedRef.current=true;
+      const history=appendPlayHistory({score:s.floor,floor:s.floor,money:s.money,luck:s.luck});
+      setLocalPlayHistory(history);
+      setLocalHistorySummary(getLocalHistorySummary(history));
+    }
+    setS(x=>{const h=Math.max(x.highScore,x.floor); localStorage.setItem('infinite_elevator_highscore',String(h)); return {...x,highScore:h};});
+    if(battleActive&&battleCode&&battleRole){
+      // 最終操作確定後に完了を送信。結果画面は両者の完了を受信してから開く。
+      setBattleRunFinished(true);
+      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true,roomTitle:room.title,phase:'finished'}).catch(()=>{});
+      return;
+    }
+    setGameover(true);
+    if(firebaseReady){void refreshScorePreview(s.floor);}
+    else if(beatHighScore){void refreshScorePreview(s.floor);}
+    else{setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);}
+  };
+
+  const triggerRoom=(forcedTier?:number,forcedType?:string)=>{
+    let tier=forcedTier||1; if(!forcedTier){const r=Math.random()*100;tier=r<40?1:r<70?2:r<90?3:r<99?4:5;} if(forcedShop){tier=1;forcedType='SHOP_SMALL';setForcedShop(false);}
+    executeRoom(tier,forcedType);
+  };
+  const executeRoom=(tier:number,type?:string)=>{
+    setRoomIntro(true);
+    if(tier>=4){setS(current=>{const had=current.items.some(i=>i.id==='immortal_mag');return had?{...current,items:current.items.filter(i=>i.id!=='immortal_mag'),logs:['不老の八尺瓊勾玉が役目を終えて消失した。',...current.logs]}:current;});}
+    if(tier===1){const t=type||pick(['NOTHING','LUCKY','MONEY_FOUND','STAIRS_SHORT','DOORS','SHOP_SMALL','FORTUNE','BOXES','BARTER','CROSSROADS']);
+      if(t==='NOTHING')show({tier,title:'何も無い部屋',desc:'静けさが漂っている。',result:'変化なし'});
+      else if(t==='LUCKY'){const g=ri(1,3);show({tier,title:'ラッキー部屋',desc:'淡い緑の光がゆっくりと集まってくる。',result:'祝福の光に触れてみよう',kind:'reveal',payload:{type:'luck',amount:g}});}
+            else if(t==='MONEY_FOUND'){const g=ri(100,500);show({tier,title:'落ちている財布',desc:'静かな通路の床に、ひとつだけ財布が落ちている。',result:'中身を確認してみよう',kind:'reveal',payload:{type:'wallet',amount:g}});}
+      else if(t==='STAIRS_SHORT'){const g=ri(5,20);show({tier,title:'短い階段',desc:'上へ続く短い階段が現れた。',result:'階段を登ってみよう',kind:'reveal',payload:{type:'stairs',amount:g}});}
+      else if(t==='DOORS'){const all:DoorChoice[]=['creaky','silver','gold','luck','health','money'];setDoorChoices([...all].sort(()=>Math.random()-.5).slice(0,2));show({tier,title:'2つの扉',desc:'6種類の扉の中から、今回は2つだけが現れた。どちらか1つを選ぼう。',result:'2つの扉が出現',kind:'doors'});}
+      else if(t==='SHOP_SMALL')setupShop(tier,1);
+            else if(t==='FORTUNE'){setFortuneReading(false);show({tier,title:'占い師の小部屋',desc:'ミステリアスな占い師が水晶越しにあなたの運勢を見つめている。',result:'占ってもらおう',kind:'fortune'});}
+      else if(t==='BOXES'){
+        const rewards=[
+          {type:'money' as const,value:ri(300,699)},
+          {type:'luck' as const,value:ri(2,4)},
+          {type:'turn' as const,value:1}
+        ].sort(()=>Math.random()-.5);
+        setBoxRewards(rewards);setBoxSelected(null);setBoxRevealAll(false);
+        show({tier,title:'3つの怪しい小箱',desc:'直感でどれか1つを選ぼう。選んだ後、残りの箱の中身も公開される。',result:'箱を選択',kind:'boxes'});
+      }
+      else if(t==='BARTER'){setBarterCount(0);show({tier,title:'怪しい物々交換所',desc:'行商人がいる。交換できるのは1回の訪問につき最大5回まで。',result:'交換選択',kind:'barter'});}
+      else show({tier,title:'運命の分岐路',desc:'道が2つに分かれている。',result:'道を選択',kind:'crossroads'});
+    } else if(tier===2){const t=type||pick(['VENDING','SUPER_LUCKY','HEALTH','TREASURE','RUBY_MINING','STAIRS_MED','SHOP_MED','BLACKJACK','FORGE','ALTAR','MYSTERY_AUCTION','ATM']);
+      if(t==='VENDING'){setVendingCount(0);const sale=Math.random()<.20;show({tier,title:'自動販売機',desc:'購入すると1/2の確率で+1される。購入は1回の訪問につき最大5回まで。',result:sale?'🎉 20%抽選当選！ 半額セール開催中':'自販機発見',resultType:sale?'gold':'neutral',kind:'vending',payload:{sale}});}
+      else if(t==='SUPER_LUCKY'){const g=ri(3,5);show({tier,title:'超ラッキー部屋',desc:'鮮やかな緑の光と粒子がゆっくり舞い始める。',result:'強い祝福を受け取ろう',kind:'reveal',payload:{type:'luck',amount:g}});}
+      else if(t==='HEALTH'){const g=1;show({tier,title:'健康の湯',desc:'あたたかな湯気が疲れをゆっくりほどいていく。',result:'温泉に浸かって休もう',kind:'reveal',payload:{type:'health',amount:g}});}
+      else if(t==='TREASURE'){show({tier,title:'小さな宝箱',desc:'少し上質な古い宝箱が置かれている。',result:'宝箱を開けてみよう',kind:'reveal',payload:{type:'treasure'}});}
+      else if(t==='RUBY_MINING')setupMining(tier,'ruby');
+      else if(t==='STAIRS_MED'){const g=ri(20,50);show({tier,title:'長い階段',desc:'高い場所へ続く長い螺旋階段が現れた。',result:'息を整えて登ろう',kind:'reveal',payload:{type:'stairs',amount:g}});}
+      else if(t==='SHOP_MED')setupShop(tier,3); else if(t==='BLACKJACK'){setBj({playing:false,bet:100,p:[],d:[]});setBjPhase('');show({tier,title:'地下カードサロン',desc:'BJでディーラーと勝負(21以内で高い方が勝ち)。',result:'勝負可能',kind:'blackjack'});}
+      else if(t==='FORGE'){setForgeUsed(false);show({tier,title:'魔法鍛冶屋',desc:'鏡や指輪の性能を無料で1つだけ強化(+1~3)します！',result:'この部屋では1回だけ強化できます',kind:'forge'});}
+      else if(t==='ALTAR')show({tier,title:'運試しの祭壇',desc:'何を捧げるかで加護が変わる。',result:'祭壇に祈る',kind:'altar'});
+      else if(t==='ATM'){setAtmInput('');show({tier,title:'ATM',desc:atmDeposit>0?'以前預けたお金が満期になっている。5倍で受け取れる。':'好きな金額を預けられる特殊ATM。次にこの部屋へ来ると5倍になって戻ってくる。',result:atmDeposit>0?`預金 ${atmDeposit}円 → 受取 ${atmDeposit*5}円`:'預け入れ可能',resultType:atmDeposit>0?'gold':'neutral',kind:'atm'});}
+      else show({tier,title:'ミステリーオークション',desc:'謎の袋が出品中。(1000円)',result:'競り参加',kind:'mystery'});
+    } else if(tier===3){const t=type||pick(['CASINO','SUPER_LUCKY_3','HEALTH_2','EMERALD_MINING','STAIRS_LONG','SHOP_LARGE','ITEM_BOX','SURVEY_GIRL']);
+      if(t==='CASINO'){setCasinoSpinsLeft(10);setSlotMessage('');setSlot(['❔','❔','❔']);setSlotWin(false);show({tier,title:'スロットカジノ',desc:'1回の訪問につき最大10スピン。現金配当に加えて、🍀揃いで運気、⚡揃いで残り回数を獲得。ベット上限500円。',result:'CASINO OPEN / 残り10回',kind:'casino'});} 
+      else if(t==='SUPER_LUCKY_3'){const g=ri(6,8);show({tier,title:'極ラッキー部屋',desc:'強い祝福の光が部屋いっぱいに満ちていく。',result:'祝福を受け取ろう',kind:'reveal',payload:{type:'luck',amount:g}});}
+      else if(t==='HEALTH_2'){const g=ri(2,3);show({tier,title:'無病の湯',desc:'青白い湯気と滝音が身体を包み込む。',result:'静かに湯へ浸かろう',kind:'reveal',payload:{type:'health',amount:g}});}
+      else if(t==='EMERALD_MINING')setupMining(tier,'emerald');
+      else if(t==='STAIRS_LONG'){const g=ri(50,100);show({tier,title:'果てしなく長い階段',desc:'終点の見えない巨大階段が闇の彼方まで続いている。',result:'覚悟を決めて登ろう',kind:'reveal',payload:{type:'stairs',amount:g}});}
+      else if(t==='SHOP_LARGE')setupShop(tier,5); else if(t==='SURVEY_GIRL'){const surveys=[
+        {q:'休日は外出派？おうち派？',a:'外出派',b:'おうち派',wa:48,wb:52,genre:'日常'},
+        {q:'朝型？夜型？',a:'朝型',b:'夜型',wa:30,wb:70,genre:'生活'},
+        {q:'犬派？猫派？',a:'犬派',b:'猫派',wa:52,wb:48,genre:'日常'},
+        {q:'告白するなら直接？メッセージ？',a:'直接',b:'メッセージ',wa:68,wb:32,genre:'恋愛'},
+        {q:'デートなら屋外？屋内？',a:'屋外',b:'屋内',wa:55,wb:45,genre:'恋愛'},
+        {q:'旅行なら海？山？',a:'海',b:'山',wa:62,wb:38,genre:'旅行'},
+        {q:'連絡は電話派？メッセージ派？',a:'電話',b:'メッセージ',wa:24,wb:76,genre:'日常'},
+        {q:'好きな人には自分から行く？待つ？',a:'自分から行く',b:'待つ',wa:58,wb:42,genre:'恋愛'}
+      ];const survey=pick(surveys);show({tier,title:'アンケート娘',desc:`女の子「ねえねえ、${survey.genre}系のアンケートに答えてくれない？」`,result:`女の子「${survey.q}」`,kind:'survey',payload:survey});}
+      else {setItemBoxOpening(false);show({tier,title:'不思議なアイテム箱',desc:'豪華な箱が置いてある。中には特別なアイテムが入っていそうだ。',result:'箱を開けてみよう',kind:'itembox'});}
+    } else if(tier===4){const t=type||pick(['WARP','AUCTION','DIAMOND_MINING','HEALTH_3']);
+      if(t==='WARP')show({tier,title:'ワープホール',desc:'使うとランダムに移動できる。',result:'ワープホール現る',kind:'warp'});
+      else if(t==='AUCTION')show({tier,title:'神々の競売場',desc:'最高峰の品がオークションに出品。',result:'競売開催中',kind:'auction'});
+      else if(t==='DIAMOND_MINING')setupMining(tier,'diamond');
+      else if(t==='HEALTH_3'){const g=ri(4,5);show({tier,title:'不老不死の湯',desc:'天空の湯から神秘的な光が立ち上っている。',result:'伝説の湯へ浸かろう',kind:'reveal',payload:{type:'health',amount:g}});}
+    } else {const t=type||pick(['ULTIMATE_ROULETTE','GOD','LEGEND_SHOP']);if(t==='ULTIMATE_ROULETTE'){setUltimateMessage('???');setUltimateSpinning(false);show({tier,title:'究極のルーレット',desc:'神々の気まぐれ。究極ルーレットに挑むか？',result:'運命のルーレット',kind:'ultimate'});} else if(t==='LEGEND_SHOP'){setLegendShopUsed(false);show({tier,title:'伝説の神器商店',desc:'この場所でしか手に入らない三種の神器を扱う。購入できるのは1回の訪問につき1つだけ。',result:'神器を1つ選べ',resultType:'gold',kind:'legendshop'});} else show({tier,title:'神の故郷',desc:'好きなアイテムを一つ選べます。',result:'神の加護',kind:'god'});}
+  };
+
+
+  const playCatalogStage=(stage:StageCatalogEntry)=>{
+    playSfx('start',soundOn);
+    runRecordedRef.current=false;
+    setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);
+    scoreSubmitLockRef.current=false;
+    setScoreSubmitting(false);
+    setScoreSaveMessage('');
+    setScoreSubmitted(false);
+    setForgeUsed(false);
+    setGameover(false);
+    setMenu(false);
+    setDoors(true);
+    setMoving(false);
+    setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');
+    setS({...baseState,highScore:s.highScore});
+    guide.onClose();
+    stagePreview.onClose();
+    setPreviewStage(null);
+
+    if(stage.title==='エレベーターホール'){
+      show({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});
+      return;
+    }
+    if(stage.title==='地獄の門'){
+      setHellDie(null);
+      setHellRolling(false);
+      setHellMessage('「5」が出れば生還。1回振るごとに残り回数を1消費する。');
+      setS(x=>({...x,inHell:true}));
+      setRoomIntro(true);
+      show({tier:5,title:'地獄の門',desc:'ここは脱出判定専用フロア。サイコロで「5」を出した瞬間だけ地上へ戻れる。失敗しても挑戦は続くが、振るたびに残り回数を1消費する。',result:'脱出条件：5を出せ / 成功率 1/6',resultType:'danger',kind:'hell'});
+      return;
+    }
+
+    const stageMap:Record<string,{tier:number;type:string}>={
+      '何も無い部屋':{tier:1,type:'NOTHING'},
+      'ラッキー部屋':{tier:1,type:'LUCKY'},
+      '落ちている財布':{tier:1,type:'MONEY_FOUND'},
+      '短い階段':{tier:1,type:'STAIRS_SHORT'},
+      '2つの扉':{tier:1,type:'DOORS'},
+      '小さなお店':{tier:1,type:'SHOP_SMALL'},
+      '占い師の小部屋':{tier:1,type:'FORTUNE'},
+      '3つの怪しい小箱':{tier:1,type:'BOXES'},
+      '怪しい物々交換所':{tier:1,type:'BARTER'},
+      '運命の分岐路':{tier:1,type:'CROSSROADS'},
+      '自動販売機':{tier:2,type:'VENDING'},
+      '超ラッキー部屋':{tier:2,type:'SUPER_LUCKY'},
+      '健康の湯':{tier:2,type:'HEALTH'},
+      '小さな宝箱':{tier:2,type:'TREASURE'},
+      'ルビーの採掘場':{tier:2,type:'RUBY_MINING'},
+      '長い階段':{tier:2,type:'STAIRS_MED'},
+      '大きなお店':{tier:2,type:'SHOP_MED'},
+      '地下カードサロン':{tier:2,type:'BLACKJACK'},
+      '魔法鍛冶屋':{tier:2,type:'FORGE'},
+      '運試しの祭壇':{tier:2,type:'ALTAR'},
+      'ミステリーオークション':{tier:2,type:'MYSTERY_AUCTION'},
+      'スロットカジノ':{tier:3,type:'CASINO'},
+      '極ラッキー部屋':{tier:3,type:'SUPER_LUCKY_3'},
+      '無病の湯':{tier:3,type:'HEALTH_2'},
+      'エメラルドの採掘場':{tier:3,type:'EMERALD_MINING'},
+      '果てしなく長い階段':{tier:3,type:'STAIRS_LONG'},
+      'ホームセンター':{tier:3,type:'SHOP_LARGE'},
+      '不思議なアイテム箱':{tier:3,type:'ITEM_BOX'},
+      'アンケート娘':{tier:3,type:'SURVEY_GIRL'},
+      'ワープホール':{tier:4,type:'WARP'},
+      '神々の競売場':{tier:4,type:'AUCTION'},
+      'ダイヤモンドの採掘場':{tier:4,type:'DIAMOND_MINING'},
+      '不老不死の湯':{tier:4,type:'HEALTH_3'},
+      'ATM':{tier:2,type:'ATM'},
+      '究極のルーレット':{tier:5,type:'ULTIMATE_ROULETTE'},
+      '神の故郷':{tier:5,type:'GOD'},
+      '伝説の神器商店':{tier:5,type:'LEGEND_SHOP'}
+    };
+    const target=stageMap[stage.title];
+    if(target) executeRoom(target.tier,target.type);
+  };
+
+  const setupMining=(tier:number,gem:ItemId)=>{setRocks(Array.from({length:5},()=>{const ok=Math.random()<.60;const r=Math.random();const count=ok?(r<.55?1:r<.85?2:3):0;return {gem:ok?gem:null,count,open:false}}));setPicks(2);show({tier,title:gem==='ruby'?'ルビーの採掘場':gem==='emerald'?'エメラルドの採掘場':'ダイヤモンドの採掘場',desc:'5つの岩から2つ壊そう！宝石が出るかも！',result:'岩を選んで壊そう',kind:'mining'});};
+  const setupShop=(tier:number,count:number)=>{const pool=[makeItem('mirror',ri(3,5)),makeItem('ring',ri(6,9)),makeItem('shop_ticket'),makeItem('sage_gem'),makeItem('party_set'),makeItem('money_tree',ri(1,2)),makeItem('blessing_charm',ri(1,2))].sort(()=>Math.random()-.5).slice(0,count).map(item=>({item,sold:false}));setShop(pool);show({tier,title:count===1?'小さなお店':count===3?'大きなお店':'ホームセンター',desc:'アイテムの購入が可能。※宝石のみ売却できます。',result:'ショップ営業中',kind:'shop'});};
+
+  const press=()=>{if(moving||gameover||s.turnsLeft<=0||s.inHell)return; playSfx('door',soundOn); setMoving(true);setDoors(false); let x={...s,items:[...s.items],ringBuff:{...s.ringBuff}}; const protectedByMag=x.items.some(i=>i.id==='immortal_mag'); if(!protectedByMag)x.turnsLeft--; x.items.forEach(i=>{if(i.id==='money_tree')x.money+=100*(i.paramN||1); if(i.id==='blessing_charm')x.luck+=(i.paramN||1); if(i.id==='kusanagi'){x.luck+=2;x.money+=200;}});
+    // 幸運の指輪は「次の3回の上昇計算」まで有効。3回目の計算後に解除する。
+    const effectiveLuck=x.luck;
+    let targetTier=1;
+    if(x.partySet){const r=Math.random();targetTier=r<.72?2:r<.92?3:4;}
+    else {const r=Math.random();targetTier=r<.65?1:r<.90?2:r<.98?3:4;}
+    x.partySet=false;
+    const base=targetTier===1?ri(1,12):targetTier===2?ri(10,30):targetTier===3?ri(25,50):ri(40,80);
+    const luckMult=targetTier===1?ri(2,3):targetTier===2?ri(3,4):targetTier===3?ri(4,5):ri(5,7);
+    const rawSteps=base+Math.max(0,effectiveLuck)*luckMult;
+    if(x.ringBuff.active){
+      const nextTurns=x.ringBuff.turns-1;
+      if(nextTurns<=0){x.luck-=x.ringBuff.amount;x.ringBuff={active:false,turns:0,amount:0};}
+      else x.ringBuff={...x.ringBuff,turns:nextTurns};
+    }
+    const mirrorMul=x.mirrorMultiplier;
+    const yataMul=x.items.some(i=>i.id==='yata_mirror')?2:1;
+    const finalSteps=rawSteps*mirrorMul*yataMul;
+    x.mirrorMultiplier=1;
+    setS(x);
+    fastTimeout(()=>{
+      setOverlay({show:true,tier:1,steps:ri(1,12),detail:'NORMALから昇格抽選スタート…',locked:false});
+      let currentTier=1; let ticks=0;
+      const timer=fastInterval(()=>{ticks++;playSfx(currentTier>=3?'slotStop':'click',soundOn);setOverlay(o=>({...o,steps:ri(1,Math.max(12,Math.min(99,rawSteps))),detail:currentTier===1?'昇格するか…？':currentTier===2?'🚀 さらに上へ昇格抽選…！':currentTier===3?'⚡ OVERDRIVE昇格を抽選中…！':'🔥 神速モード確定へ…！'}));},85);
+      const promote=(tier:number,msg:string)=>{currentTier=tier;playSfx((`move${Math.min(4,tier)}` as SfxName),soundOn);setOverlay(o=>({...o,tier,detail:msg}));};
+      if(targetTier>=2)fastTimeout(()=>promote(2,'昇格！ 🚀 BOOSTER'),700);
+      if(targetTier>=3){fastTimeout(()=>setOverlay(o=>({...o,detail:'BOOSTER継続… まだ止まらない…！'})),1250);fastTimeout(()=>promote(3,'さらに昇格！ ⚡ LIMIT BREAK'),1750);}
+      if(targetTier>=4){fastTimeout(()=>setOverlay(o=>({...o,detail:'LIMIT BREAK継続… 最上位まで行くか…！？'})),2550);fastTimeout(()=>{promote(4,'最上位昇格！ ✨ OVERDRIVE / 激熱 ✨');playSfx('jackpot',soundOn);},3200);}
+      const revealDelay=targetTier===1?1380:targetTier===2?2100:targetTier===3?3000:4500;
+      fastTimeout(()=>{
+        window.clearInterval(timer);
+        setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:`素の上昇値：基礎${base} + 運気(${effectiveLuck})×${luckMult}`,locked:true});
+        const finish=()=>{const multDetail=[mirrorMul>1?`乱反射×${mirrorMul}`:'',yataMul>1?'八咫鏡×2':''].filter(Boolean).join(' ＋ ');setOverlay({show:true,tier:targetTier,steps:finalSteps,detail:multDetail?`✨ ${multDetail} 適用！ ${rawSteps} → ${finalSteps}階 ✨`:`上昇階数 +${finalSteps} 確定！`,locked:true});playSfx(targetTier>=3?'jackpot':'arrive',soundOn);fastTimeout(()=>{setOverlay(o=>({...o,show:false}));setS(y=>({...y,floor:y.floor+finalSteps,logs:[`【ボタン】演出${targetTier}! +${finalSteps}階登った！`,...y.logs]}));fastTimeout(()=>{playSfx('arrive',soundOn);triggerRoom();setDoors(true);setMoving(false);},180);},900);};
+        if(mirrorMul>1){fastTimeout(()=>{playSfx('item',soundOn);setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:`🪞 乱反射の鏡★${mirrorMul} 発動！ ${rawSteps}階を ×${mirrorMul} へ！`,locked:true});fastTimeout(finish,900);},650);}else{fastTimeout(finish,650);}
+      },revealDelay);
+    },420);
+  };
+
+  const useItem=(i:number)=>{const item=s.items[i]; if(!item||item.type!=='consumable')return; if(item.id==='mirror'&&s.mirrorMultiplier>1){playSfx('fail',soundOn);log(`乱反射の鏡★${s.mirrorMultiplier}が発動待機中のため、別の鏡は使えない`);return;} playSfx('item',soundOn); const ns={...s,items:[...s.items]}; if(item.id==='mirror')ns.mirrorMultiplier=item.paramN||1; else if(item.id==='ring'){if(ns.ringBuff.active)return;ns.ringBuff={active:true,turns:3,amount:item.paramN||1};ns.luck+=item.paramN||1;} else if(item.id==='sage_gem')ns.luck+=ns.floor%10; else if(item.id==='party_set')ns.partySet=true; else if(item.id==='shop_ticket')setForcedShop(true); ns.items.splice(i,1);setS(ns);setSelected(null);};
+  const sellGem=(i:number)=>{const item=s.items[i];if(item?.type!=='gem'||(room.kind!=='shop'&&room.kind!=='legendshop')){playSfx('fail',soundOn);return;}playSfx('sell',soundOn);const total=item.price*(item.count||1);setS(x=>({...x,money:x.money+total,items:x.items.filter((_,j)=>j!==i)}));setSelected(null);};
+  const discard=(i:number)=>{playSfx('discard',soundOn);setS(x=>({...x,items:x.items.filter((_,j)=>j!==i)}));setSelected(null);};
+
+  const submitScore=async()=>{
+    if(scoreSubmitted||scoreSubmitLockRef.current)return;
+    const id=playerId||getOrCreatePlayerId();
+    if(!playerId)setPlayerId(id);
+    const hasEligiblePreview=!firebaseReady||Boolean(scorePreview&&(scorePreview.monthly.eligible||scorePreview.alltime.eligible));
+    if(firebaseReady&&!hasEligiblePreview&&!scorePreviewError){
+      setScoreSaveMessage('今回は月間・総合とも自己ベスト更新対象ではありません。');
+      return;
+    }
+    scoreSubmitLockRef.current=true;
+    setScoreSubmitting(true);
+    setScoreSaveMessage('ランキングへ保存中…');
+    const rawName=nickname.trim()||'名無しの登山者';
+    const name=Array.from(rawName).slice(0,12).join('');
+    if(name!==nickname.trim())setNickname(name);
+    localStorage.setItem('infinite_elevator_nickname',name);
+    try{
+      if(firebaseReady){
+        const result=await submitRankings({name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck},id);
+        setRankingViews({monthly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
+        const failed=[result.monthly.reason==='save_failed'?'月間':'',result.alltime.reason==='save_failed'?'総合':''].filter(Boolean);
+        const updated=[result.monthly.accepted?'月間':'',result.alltime.accepted?'総合':''].filter(Boolean);
+        if(failed.length){
+          setRankingStatus('error');
+          setScoreSaveMessage(`${failed.join('・')}ランキングの保存に失敗しました。保存済みの側は二重登録されません。もう一度お試しください。`);
+          playSfx('fail',soundOn);
+          if(updated.length)log(`${updated.join('・')}ランキングは保存済みです。${failed.join('・')}のみ再試行できます`);
+          return;
+        }
+        setScoreSubmitted(true);
+        setScoreSaveMessage(updated.length?`${updated.join('・')}ランキングへ保存しました！`:'自己ベスト未更新のため、ランキングへの書き込みはありませんでした。');
+        if(updated.length){
+          playSfx('success',soundOn);
+          log(`${updated.join('・')}ランキングの自己ベストを更新しました`);
+        }else{
+          playSfx('click',soundOn);
+          log('月間・総合とも自己ベスト未更新、またはTop1000圏外でした');
+        }
+        return;
+      }
+      const scoreRow={id,name,score:s.floor,floor:s.floor,money:s.money,luck:s.luck};
+      const updateLocal=(key:string)=>{
+        const local=JSON.parse(localStorage.getItem(key)||'[]');
+        const withoutSelf=Array.isArray(local)?local.filter((row:any)=>row?.id!==id):[];
+        const previous=Array.isArray(local)?local.find((row:any)=>row?.id===id):null;
+        const best=previous&&Number(previous.score||0)>=s.floor?previous:scoreRow;
+        const all=[...withoutSelf,best].sort((a:any,b:any)=>Number(b.score||0)-Number(a.score||0)).slice(0,1000);
+        localStorage.setItem(key,JSON.stringify(all));
+      };
+      updateLocal('infinite_elevator_local_rankings');
+      updateLocal(`infinite_elevator_local_rankings_monthly_${getCurrentMonthKey()}`);
+      setRankingViews({monthly:{rows:[],mine:null,loaded:false,cached:false},alltime:{rows:[],mine:null,loaded:false,cached:false}});
+      setScoreSubmitted(true);
+      setScoreSaveMessage('ローカルランキングへ保存しました。');
+      playSfx('success',soundOn);
+    }catch{
+      setRankingStatus('error');
+      setScoreSaveMessage('通信エラーで保存できませんでした。接続を確認して、もう一度「登録」を押してください。');
+      playSfx('fail',soundOn);
+    }finally{
+      scoreSubmitLockRef.current=false;
+      setScoreSubmitting(false);
+    }
+  };
+
+  const card=()=>Math.min(10,ri(1,10)); const hand=(a:number[])=>a.reduce((p,c)=>p+c,0);
+  const moveByEvent=(delta:number,label:string)=>{
+    if(eventAnimating)return;
+    const from=s.floor;
+    const to=Math.max(1,from+delta);
+    setEventAnimating(true);
+    setDoors(false);
+    setFloorTransition({show:true,from,to,label,phase:'移動開始'});
+    playSfx(delta>=0?'warpUp':'warpDown',soundOn);
+    fastTimeout(()=>setFloorTransition({show:true,from,to,label,phase:'階層を移動中…'}),420);
+    fastTimeout(()=>{
+      patch(current=>({floor:Math.max(1,current.floor+delta)}));
+      setFloorTransition({show:true,from,to,label,phase:`${to}階に到着`});
+      playSfx('arrive',soundOn);
+    },900);
+    fastTimeout(()=>{
+      setFloorTransition(x=>({...x,show:false}));
+      triggerRoom();
+      setDoors(true);
+      setEventAnimating(false);
+    },1500);
+  };
+
+  const warp=(min:number,max:number,label:string)=>{if(warpAnimating)return;setWarpAnimating(true);setWarpMessage(`${label}：空間座標を固定中…`);playSfx('roulette',soundOn);let tick=0;const timer=fastInterval(()=>{const fake=ri(min,max);setWarpMessage(`🌀 座標跳躍中… ${fake>=0?'+':''}${fake}階？`);playSfx(tick%3===0?'warpUp':'slotStop',soundOn);tick++;},110);fastTimeout(()=>{window.clearInterval(timer);setWarpMessage('⚡ 次元境界を突破！');playSfx('jackpot',soundOn);},1250);fastTimeout(()=>{const d=ri(min,max);playSfx(d>=0?'warpUp':'warpDown',soundOn);setWarpMessage(`${d>=0?'+':''}${d}階へ座標確定！`);setWarpAnimating(false);show({...room,result:`${d>=0?'+':''}${d}階へワープ開始！`,resultType:d>=0?'gold':'danger'});fastTimeout(()=>moveByEvent(d,`${label} / WARP`),420);},1850);};
+  const buyAuction=(item:Item)=>{if(s.money<500){playSfx('fail',soundOn);return;}if(s.items.length>=3&&item.type!=='gem'){playSfx('click',soundOn);setPendingOverflow(item);setPendingOverflowPurchase({source:'auction',cost:500});return;}playSfx('buy',soundOn);patch(current=>({money:current.money-500}));addItem(item);show({...room,kind:undefined,result:`${item.name} 落札！`,resultType:'gold'});};
+
+  const novelSpeaker=useMemo(()=>{
+    const k=room.kind||'';
+    if(k==='survey')return 'アンケート娘';
+    if(k==='fortune')return '占い師';
+    if(k==='shop')return '店員';
+    if(k==='legendshop')return '神器商人';
+    if(k==='auction'||k==='mystery')return '競売人';
+    if(k==='blackjack'||k==='casino')return 'ディーラー';
+    if(k==='atm')return 'ATM';
+    if(k==='god')return '神々の声';
+    if(k==='hell')return '？？？';
+    if(k==='vending')return '自動販売機';
+    return 'ナレーション';
+  },[room.kind]);
+
+  const interactive=useMemo(()=>{
+    const kind=room.kind;
+    if(kind==='doors'){
+      const defs:Record<DoorChoice,{title:string;sub:string;go:()=>void}>={
+        creaky:{title:'軋んだ扉',sub:'Tier 1 確定',go:()=>executeRoom(1)},
+        silver:{title:'銀の扉',sub:'Tier 3 以上確定',go:()=>{const r=Math.random();executeRoom(r<.667?3:r<.967?4:5);}},
+        gold:{title:'金の扉',sub:'Tier 4 以上確定',go:()=>executeRoom(Math.random()<.9?4:5)},
+        luck:{title:'運気の扉',sub:'ラッキー系の部屋へ',go:()=>{const r=ri(1,3);executeRoom(r,r===1?'LUCKY':r===2?'SUPER_LUCKY':'SUPER_LUCKY_3');}},
+        health:{title:'健康の扉',sub:'健康系の湯へ',go:()=>{const r=ri(2,4);executeRoom(r,r===2?'HEALTH':r===3?'HEALTH_2':'HEALTH_3');}},
+        money:{title:'お金の扉',sub:'宝石採掘場へ',go:()=>{const r=ri(2,4);executeRoom(r,r===2?'RUBY_MINING':r===3?'EMERALD_MINING':'DIAMOND_MINING');}}
+      };
+      return <SimpleGrid columns={2} spacing={2}>{doorChoices.map(id=><Action key={id} title={defs[id].title} sub={defs[id].sub} onClick={defs[id].go}/>)}</SimpleGrid>;
+    }
+    if(kind==='boxes'){
+      const names=['赤','青','緑'];
+      const rewardText=(r:{type:'money'|'luck'|'turn',value:number})=>r.type==='money'?`${r.value}円`:r.type==='luck'?`運気 +${r.value}`:`回数 +${r.value}`;
+      const rewardIcon=(r:{type:'money'|'luck'|'turn',value:number})=>r.type==='money'?'💰':r.type==='luck'?'🍀':'⚡';
+      return <Stack spacing={2}>
+        <SimpleGrid columns={3} spacing={1.5}>{names.map((v,i)=>{
+          const reward=boxRewards[i]; const selectedNow=boxSelected===i; const visible=boxSelected===null||selectedNow||boxRevealAll;
+          return <Button key={v} minH="76px" h="auto" py={2} px={1.5} bg={selectedNow?(i===0?'red.700':i===1?'blue.700':'green.700'):boxSelected===null?(i===0?'red.800':i===1?'blue.800':'green.800'):visible?'gray.700':'gray.800'} color="white" border="2px solid" borderColor={selectedNow?(i===0?'red.300':i===1?'blue.300':'green.300'):boxRevealAll?'whiteAlpha.400':(i===0?'red.400':i===1?'blue.400':'green.400')} isDisabled={boxSelected!==null} opacity={boxSelected!==null&&!visible ? .55 : 1} onClick={()=>{
+            if(boxSelected!==null||!reward)return;
+            playSfx(reward.type==='money'?'coin':'success',soundOn);
+            setBoxSelected(i);
+            if(reward.type==='money')patch(current=>({money:current.money+reward.value})); else if(reward.type==='luck')patch(current=>({luck:current.luck+reward.value})); else patch(current=>({turnsLeft:current.turnsLeft+reward.value}));
+            const msg=`${v}の箱：${rewardText(reward)}！`;
+            show({...room,result:msg,resultType:reward.type==='money'?'gold':'success'});
+            fastTimeout(()=>{setBoxRevealAll(true);playSfx('item',soundOn);},900);
+          }}>
+            <VStack spacing={1}><Text fontWeight="900" fontSize="xs">{v}の箱</Text>{boxSelected===null?<><Text fontSize="xl">📦</Text><Text fontSize="9px" color="gray.300">選ぶ</Text></>:visible&&reward?<><Text fontSize="xl">{rewardIcon(reward)}</Text><Text fontSize="10px" fontWeight="900" color={selectedNow?'cyan.100':'white'}>{rewardText(reward)}</Text>{selectedNow&&<Badge colorScheme="cyan" fontSize="8px">選択</Badge>}</>:<><Text fontSize="xl">📦</Text><Text fontSize="9px" color="gray.400">？？？</Text></>}</VStack>
+          </Button>})}</SimpleGrid>
+        {boxSelected!==null&&!boxRevealAll&&<Text textAlign="center" fontSize="10px" color="gray.300">残りの箱を開封しています…</Text>}
+        {boxRevealAll&&<Text textAlign="center" fontSize="10px" color="cyan.200" fontWeight="bold">すべての箱の中身を公開しました</Text>}
+      </Stack>;
+    }
+    if(kind==='crossroads')return <SimpleGrid columns={2} spacing={2}><Action title="平坦路" sub="確実に+300円" onClick={()=>{playSfx('coin',soundOn);patch(current=>({money:current.money+300}));show({...room,kind:undefined,result:'+300円',resultType:'success'})}}/><Action title="茨の道" sub="1500円 or -500円" onClick={()=>{const win=Math.random()<.5;playSfx(win?'success':'fail',soundOn);patch(current=>({money:Math.max(0,current.money+(win?1500:-500))}));show({...room,kind:undefined,result:win?'+1500円':'-500円',resultType:win?'gold':'danger'})}}/></SimpleGrid>;
+    if(kind==='barter')return <Stack spacing={1.5}><HStack justify="space-between"><Text fontSize="10px" color="gray.300">この訪問での交換</Text><Badge colorScheme={barterCount>=5?'red':'teal'}>{barterCount} / 5回</Badge></HStack><Action title="運気2 ⇆ 300円" disabled={barterCount>=5} onClick={()=>{if(barterCount>=5){playSfx('fail',soundOn);return;}if(s.luck>=2){playSfx('coin',soundOn);patch(current=>({luck:current.luck-2,money:current.money+300}));setBarterCount(c=>c+1);}else playSfx('fail',soundOn);}}/><Action title="600円 ⇆ 回数+1" disabled={barterCount>=5} onClick={()=>{if(barterCount>=5){playSfx('fail',soundOn);return;}if(s.money>=600){playSfx('success',soundOn);patch(current=>({money:current.money-600,turnsLeft:current.turnsLeft+1}));setBarterCount(c=>c+1);}else playSfx('fail',soundOn);}}/>{barterCount>=5&&<Text fontSize="10px" color="orange.200" textAlign="center">この訪問での交換上限（5回）に達しました</Text>}</Stack>;
+    if(kind==='reveal'){
+      const type=room.payload?.type as string|undefined;
+      const amount=Number(room.payload?.amount||0);
+      const icon=type==='health'?'♨️':type==='stairs'?'🪜':type==='luck'?'🍀':type==='wallet'?'👛':'🎁';
+      const buttonLabel=type==='health'?'湯に浸かる':type==='stairs'?'階段を登る':type==='luck'?'祝福を受け取る':type==='wallet'?'財布を拾う':'宝箱を開ける';
+      return <Stack spacing={2}><Center><Box w="86px" h="86px" rounded="full" display="grid" placeItems="center" bg="blackAlpha.500" border="1px solid" borderColor={eventAnimating?'yellow.300':'whiteAlpha.300'} boxShadow={eventAnimating?'0 0 34px rgba(250,204,21,.55), inset 0 0 22px rgba(255,255,255,.10)':'inset 0 0 16px rgba(0,0,0,.6)'} animation={eventAnimating?'revealPulse .42s ease-in-out infinite alternate':undefined}><Text fontSize="4xl">{icon}</Text></Box></Center><Button w="100%" colorScheme={type==='health'?'cyan':type==='luck'?'green':type==='stairs'?'blue':'yellow'} color={type==='wallet'||type==='treasure'?'black':undefined} isLoading={eventAnimating} loadingText="結果を確認しています…" isDisabled={eventAnimating} onClick={()=>{if(eventAnimating)return;setEventAnimating(true);playSfx(type==='stairs'?'move2':type==='health'?'success':type==='luck'?'item':'roulette',soundOn);show({...room,result:type==='treasure'?'宝箱の鍵がゆっくり外れていく…':'効果が現れ始めた…'});fastTimeout(()=>{if(type==='luck'){patch(current=>({luck:current.luck+amount}));playSfx('success',soundOn);show({...room,kind:undefined,result:`運気 +${amount}`,resultType:'success'});}else if(type==='health'){patch(current=>({turnsLeft:current.turnsLeft+amount}));playSfx('success',soundOn);show({...room,kind:undefined,result:`残り回数 +${amount}`,resultType:'success'});}else if(type==='stairs'){setEventAnimating(false);show({...room,result:`+${amount}階！ 階段を移動中…`,resultType:'gold'});fastTimeout(()=>moveByEvent(amount,room.title),260);return;}else if(type==='wallet'){patch(current=>({money:current.money+amount}));playSfx('coin',soundOn);show({...room,kind:undefined,result:`財布の中に ${amount}円！`,resultType:'gold'});}else if(type==='treasure'){if(Math.random()<.5){const money=ri(500,1000);patch(current=>({money:current.money+money}));playSfx('coin',soundOn);show({...room,kind:undefined,result:`宝箱から ${money}円！`,resultType:'gold'});}else{const gem=pick<ItemId>(['ruby','emerald','diamond']);addItem(makeItem(gem,1));playSfx('gem',soundOn);show({...room,kind:undefined,result:`宝箱から ${gem==='ruby'?'ルビー':gem==='emerald'?'エメラルド':'ダイヤモンド'} ×1！`,resultType:'gold'});}}setEventAnimating(false);},1100);}}>{buttonLabel}</Button><Text fontSize="9px" color="gray.400" textAlign="center">結果は演出後に確定します</Text></Stack>;
+    }
+    if(kind==='vending'){
+      const sale=!!room.payload?.sale;const luckPrice=sale?100:200;const turnPrice=sale?200:400;
+      const buyDrink=(drink:'luck'|'turn',cost:number)=>{
+        if(vendingCount>=5){playSfx('fail',soundOn);return;}
+        if(s.money<cost){playSfx('fail',soundOn);setVendingFeedback(null);show({...room,result:`所持金が足りない…（必要 ${cost}円）`,resultType:'danger'});return;}
+        const gain=Math.random()<.5?1:0;
+        playSfx('buy',soundOn);
+        fastTimeout(()=>playSfx(gain>0?'success':'click',soundOn),180);
+        patch(current=>drink==='luck'?{money:current.money-cost,luck:current.luck+gain}:{money:current.money-cost,turnsLeft:current.turnsLeft+gain});
+        setVendingFeedback({kind:drink,gain,cost});
+        setVendingCount(c=>c+1);
+      };
+      return <Stack spacing={2}>
+        <HStack justify="space-between"><Text fontSize="10px" color="gray.300">この訪問での購入</Text><Badge colorScheme={vendingCount>=5?'red':'green'}>{vendingCount} / 5回</Badge></HStack>
+        {sale&&<Badge alignSelf="center" colorScheme="yellow" px={3} py={1}>🎉 半額セール！ 全商品50%OFF</Badge>}
+        <SimpleGrid columns={2} spacing={2}>
+          <Action title="運気ドリンク" sub={`${luckPrice}円 (50%で+1)`} disabled={vendingCount>=5} onClick={()=>buyDrink('luck',luckPrice)}/>
+          <Action title="回数ドリンク" sub={`${turnPrice}円 (50%で+1)`} disabled={vendingCount>=5} onClick={()=>buyDrink('turn',turnPrice)}/>
+        </SimpleGrid>
+        {vendingCount>=5&&<Text fontSize="10px" color="orange.200" textAlign="center">この訪問での購入上限（5回）に達しました</Text>}
+        {vendingFeedback&&<Box key={`${vendingFeedback.kind}-${vendingFeedback.gain}-${vendingFeedback.cost}`} p={3} rounded="xl" textAlign="center" bg={vendingFeedback.gain>0?'green.900':'gray.800'} border="2px solid" borderColor={vendingFeedback.gain>0?'green.300':'gray.500'} boxShadow={vendingFeedback.gain>0?'0 0 22px rgba(74,222,128,.45)':'0 0 14px rgba(255,255,255,.12)'} animation="revealPulse .35s ease-out 2 alternate">
+          <Text fontSize="10px" color="gray.300" fontWeight="700">購入完了　−{vendingFeedback.cost}円</Text>
+          <Text mt={1} fontSize={{base:'xl',md:'2xl'}} fontWeight="900" color={vendingFeedback.gain>0?'green.200':'gray.100'}>
+            {vendingFeedback.kind==='luck'?'🍀 運気':'⚡ 残り回数'} {vendingFeedback.gain>0?'+1':'変化なし'}
+          </Text>
+          <Text mt={1} fontSize="10px" color={vendingFeedback.gain>0?'green.100':'gray.300'}>{vendingFeedback.gain>0?'効果が発動した！':'今回は効果が発動しなかった'}</Text>
+        </Box>}
+      </Stack>;
+    }
+    if(kind==='fortune')return <Stack spacing={2}><Center><Icon as={FaWandMagicSparkles} boxSize={10} color={fortuneReading?'purple.100':'purple.300'} animation={fortuneReading?'slotJackpot .35s ease-in-out infinite alternate':undefined}/></Center><Button w="100%" colorScheme="purple" isDisabled={fortuneReading} isLoading={fortuneReading} loadingText="運勢を占っています…" onClick={()=>{if(fortuneReading)return;setFortuneReading(true);playSfx('roulette',soundOn);show({...room,result:'水晶に星の光が集まっている…',resultType:'neutral'});fastTimeout(()=>{const table=[{name:'大吉',delta:5,text:'最高の運勢！大きな追い風が吹いている。'},{name:'吉',delta:3,text:'良い流れ。積極的な一歩が幸運を呼ぶ。'},{name:'小吉',delta:1,text:'小さな幸運が積み重なりそう。'},{name:'末吉',delta:0,text:'今は静かな運勢。焦らず進もう。'},{name:'凶',delta:-2,text:'少し注意が必要。慎重に進もう。'},{name:'大凶',delta:-4,text:'波乱の気配。無理は禁物。'}];const result=pick(table);setS(x=>({...x,luck:x.luck+result.delta}));setFortuneReading(false);playSfx(result.delta>0?'success':result.delta<0?'fail':'click',soundOn);show({...room,kind:undefined,desc:'占い師が水晶から目を離し、静かに運勢を告げた。',result:`運勢：${result.name} ／ ${result.text} ／ 運気 ${result.delta>0?'+':''}${result.delta}`,resultType:result.delta>0?'success':result.delta<0?'danger':'neutral'});},1400);}}>占ってもらう</Button>{fortuneReading&&<Text fontSize="10px" color="purple.200" textAlign="center">星の巡りを読み取っています…</Text>}</Stack>;
+    if(kind==='altar')return <Stack spacing={1.5}><Text fontSize="10px" color="yellow.100" textAlign="center">祈れるのは1回だけ。成功率30%。成功すると選んだ加護を大きく受けられます。</Text><SimpleGrid columns={2} spacing={2}><Action title="🍀 運気" sub="成功：運気 +7〜10" onClick={()=>{const ok=Math.random()<.30;const g=ri(7,10);playSfx(ok?'success':'fail',soundOn);if(ok)setS(x=>({...x,luck:x.luck+g}));show({...room,kind:undefined,result:ok?`祈りが届いた！ 運気 +${g}`:'祈りは届かなかった…',resultType:ok?'success':'neutral'});}}/><Action title="🏢 階数" sub="成功：+50〜100階" onClick={()=>{const ok=Math.random()<.30;const g=ri(50,100);playSfx(ok?'success':'fail',soundOn);if(!ok){show({...room,kind:undefined,result:'祈りは届かなかった…',resultType:'neutral'});return;}show({...room,result:`祈りが届いた！ +${g}階へ導かれる…`,resultType:'gold'});fastTimeout(()=>moveByEvent(g,'祭壇の加護'),350);}}/><Action title="💰 金運" sub="成功：+1000〜1500円" onClick={()=>{const ok=Math.random()<.30;const g=ri(1000,1500);playSfx(ok?'coin':'fail',soundOn);if(ok)setS(x=>({...x,money:x.money+g}));show({...room,kind:undefined,result:ok?`金運の加護！ +${g}円`:'祈りは届かなかった…',resultType:ok?'gold':'neutral'});}}/><Action title="❤️ 健康運" sub="成功：残り回数 +5〜7" onClick={()=>{const ok=Math.random()<.30;const g=ri(5,7);playSfx(ok?'success':'fail',soundOn);if(ok)setS(x=>({...x,turnsLeft:x.turnsLeft+g}));show({...room,kind:undefined,result:ok?`健康運の加護！ 回数 +${g}`:'祈りは届かなかった…',resultType:ok?'success':'neutral'});}}/></SimpleGrid></Stack>;
+    if(kind==='mining')return <><SimpleGrid columns={5} spacing={1}>{rocks.map((r,i)=>{const reveal=r.open||picks<=0;return <Button key={i} h="62px" p={1} bg={r.open?'gray.800':picks<=0?'blackAlpha.500':'gray.700'} border="1px solid" borderColor={r.open?'cyan.600':picks<=0?'whiteAlpha.300':'gray.600'} isDisabled={r.open||picks<=0} opacity={!r.open && picks<=0 ? .65 : 1} onClick={()=>{playSfx('mine',soundOn);const n=[...rocks];n[i]={...n[i],open:true};setRocks(n);setPicks(p=>p-1);}}>{reveal?(r.gem?<VStack spacing={0}><Icon as={FaGem} color={r.gem==='ruby'?'red.300':r.gem==='emerald'?'green.300':'cyan.200'}/><Text fontSize="10px">x{r.count}</Text><Text fontSize="8px" color={r.open?'cyan.200':'gray.400'}>{r.open?'採掘':'未選択'}</Text></VStack>:<VStack spacing={0}><Text fontSize="10px" color="gray.400">空</Text><Text fontSize="8px" color={r.open?'cyan.200':'gray.500'}>{r.open?'採掘':'未選択'}</Text></VStack>):<Icon as={FaHammer}/>}</Button>})}</SimpleGrid>{picks<=0&&<><Text mt={2} fontSize="9px" color="gray.300" textAlign="center">未選択の岩も公開しました。薄く表示されているものが選ばなかった岩です。</Text><Button mt={2} w="100%" colorScheme="green" size="sm" onClick={()=>{const got=rocks.filter(r=>r.open&&r.gem);if(got.length===0){playSfx('fail',soundOn);show({...room,kind:undefined,result:'何も貰えなかった...',resultType:'neutral'});return;}playSfx('gem',soundOn);const gemTotals=got.reduce<Record<string,number>>((acc,r)=>{if(r.gem)acc[r.gem]=(acc[r.gem]||0)+r.count;return acc;},{});Object.entries(gemTotals).forEach(([gemId,count])=>addItem(makeItem(gemId as ItemId,count)));const total=got.reduce((a,r)=>a+r.count,0);show({...room,kind:undefined,result:`宝石を${total}個拾った！`,resultType:'gold'});}}>宝石を拾って進む</Button></>}</>;
+    if(kind==='shop')return <Stack spacing={1.5} maxH="145px" overflowY="auto">{shop.map((g,i)=><Flex key={i} p={2} bg="gray.800" rounded="lg" align="center" opacity={g.sold ? .5 : 1}><Icon as={g.item.icon||FaGift} mr={2}/><Box flex="1"><Text fontSize="11px" fontWeight="bold">{g.item.name}</Text><Text fontSize="9px" color="gray.400">{g.item.price}円</Text></Box><Button size="xs" colorScheme="yellow" isDisabled={g.sold} onClick={()=>{if(s.money<g.item.price){playSfx('fail',soundOn);return;}if(s.items.length>=3&&g.item.type!=='gem'){playSfx('click',soundOn);setPendingOverflow(g.item);setPendingOverflowPurchase({source:'shop',cost:g.item.price,shopIndex:i});return;}playSfx('buy',soundOn);patch(current=>({money:current.money-g.item.price}));addItem(g.item);setShop(x=>x.map((v,j)=>j===i?{...v,sold:true}:v));}}>{g.sold?'SOLD OUT':'購入'}</Button></Flex>)}</Stack>;
+    if(kind==='blackjack')return <Stack spacing={2} bg="blackAlpha.500" p={2.5} rounded="xl" border="1px solid" borderColor="teal.700"><HStack justify="space-between"><Text fontSize="xs">賭け金</Text><HStack><Button size="xs" isDisabled={bj.playing} onClick={()=>setBj(x=>({...x,bet:Math.max(100,x.bet-100)}))}>-</Button><Text color="yellow.300">{bj.bet}円</Text><Button size="xs" isDisabled={bj.playing} onClick={()=>setBj(x=>({...x,bet:x.bet+100}))}>+</Button></HStack></HStack>{bjPhase&&<Box bg="teal.950" border="1px solid" borderColor="teal.700" rounded="md" px={2} py={1.5}><Text fontSize="10px" color="teal.100" textAlign="center" fontWeight="700">{bjPhase}</Text></Box>}{!bj.playing?<Button size="sm" colorScheme="teal" onClick={()=>{if(s.money<bj.bet){playSfx('fail',soundOn);return;}setS(x=>({...x,money:x.money-bj.bet}));setBj(x=>({...x,playing:true,p:[],d:[]}));setBjPhase('カードをシャッフルしています…');playSfx('card',soundOn);fastTimeout(()=>{const p1=card(),d1=card();setBj(x=>({...x,playing:true,p:[p1],d:[d1]}));setBjPhase(`最初のカード：あなた ${p1} / Dealer ${d1}`);playSfx('card',soundOn);fastTimeout(()=>{const p2=card(),d2=card();setBj(x=>({...x,p:[p1,p2],d:[d1,d2]}));setBjPhase('初期配布完了。HITかSTANDを選んでください');playSfx('card',soundOn);},650);},600);}}>勝負開始！(勝利時2倍)</Button>:<><Flex gap={2}><Box flex="1" bg="green.950" rounded="lg" p={2}><Text fontSize="9px" color="green.300">YOU</Text><Text fontSize="sm" fontWeight="900">{bj.p.join(' / ')||'…'}</Text><Text fontSize="xs" color="green.200">合計 {hand(bj.p)}</Text></Box><Box flex="1" bg="red.950" rounded="lg" p={2}><Text fontSize="9px" color="red.300">DEALER</Text><Text fontSize="sm" fontWeight="900">{bj.d.join(' / ')||'…'}</Text><Text fontSize="xs" color="red.200">合計 {hand(bj.d)}</Text></Box></Flex><HStack><Button size="sm" flex="1" onClick={()=>{setBjPhase('カードを1枚引きます…');fastTimeout(()=>{playSfx('card',soundOn);const drawn=card();const p=[...bj.p,drawn];const total=hand(p);setBj(x=>({...x,p}));setBjPhase(`${drawn}を引いた → 合計${total}`);if(total>21){fastTimeout(()=>{playSfx('fail',soundOn);setBj(x=>({...x,playing:false}));show({...room,kind:undefined,result:`${drawn}を引いて合計${total} → BUST（21超過）`,resultType:'danger'});},650);}},500);}}>HIT</Button><Button size="sm" flex="1" colorScheme="green" onClick={()=>{setBjPhase('Dealerのターン…');let d=[...bj.d];const reveal=()=>{if(hand(d)<17){fastTimeout(()=>{const c=card();d=[...d,c];setBj(x=>({...x,d}));setBjPhase(`Dealerが ${c} を引いた → 合計${hand(d)}`);playSfx('card',soundOn);reveal();},650);}else{fastTimeout(()=>{const pv=hand(bj.p),dv=hand(d);const win=dv>21||pv>dv;const draw=pv===dv;playSfx(win?'success':draw?'click':'fail',soundOn);if(win)setS(x=>({...x,money:x.money+bj.bet*2}));else if(draw)setS(x=>({...x,money:x.money+bj.bet}));setBj(x=>({...x,d,playing:false}));setBjPhase(dv>21?`Dealer BUST：合計${dv}`:`最終結果 YOU ${pv} / DEALER ${dv}`);show({...room,kind:undefined,result:win?'勝利！':draw?'引き分け':'敗北...',resultType:win?'gold':draw?'neutral':'danger'});},750);}};reveal();}}>STAND</Button></HStack></>}</Stack>;
+    if(kind==='casino')return <Stack spacing={2}>
+      <Flex align="center" justify="space-between" bg="whiteAlpha.100" border="1px solid" borderColor="purple.500" rounded="lg" px={3} py={2}>
+        <Text fontSize="11px" color="gray.200" fontWeight="700">この訪問で回せる回数</Text>
+        <Text fontSize="sm" color={casinoSpinsLeft>0?'yellow.300':'red.300'} fontWeight="900">残り {casinoSpinsLeft} / 10 回</Text>
+      </Flex>
+      <HStack justify="center"><Button size="xs" isDisabled={slotSpinning||casinoSpinsLeft<=0} onClick={()=>setSlotBet(Math.max(20,slotBet-20))}>-</Button><Text color="yellow.300" fontWeight="900">{slotBet}円</Text><Button size="xs" isDisabled={slotSpinning||casinoSpinsLeft<=0||slotBet>=500} onClick={()=>setSlotBet(Math.min(500,slotBet+20))}>+</Button></HStack>
+      <HStack justify="center" spacing={2}>{slot.map((v,i)=><Center key={i} bg={slotWin?'yellow.900':'black'} border="2px solid" borderColor={slotWin?'yellow.300':slotSpinning?'purple.400':'whiteAlpha.200'} boxShadow={slotWin?'0 0 18px rgba(250,204,21,.85)':'inset 0 0 12px rgba(0,0,0,.7)'} animation={slotWin?'slotJackpot .28s ease-in-out infinite alternate':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'slotHeat .34s ease-in-out infinite, slotShake .22s ease-in-out infinite':undefined} rounded="lg" w="62px" h="62px" fontSize="2xl">{v}</Center>)}</HStack>
+      {slotMessage&&<Box px={3} py={2} rounded="lg" bg={slotWin?'yellow.900':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'red.900':'whiteAlpha.100'} border="1px solid" borderColor={slotWin?'yellow.300':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'orange.300':'whiteAlpha.200'} animation={slotWin?'slotJackpot .35s ease-in-out infinite alternate':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'slotHeat .34s ease-in-out infinite':undefined}><Text textAlign="center" fontSize={slotWin?'sm':'xs'} fontWeight="900" color={slotWin?'yellow.200':slotMessage.includes('リーチ')||slotMessage.includes('ラスト')?'orange.100':'gray.100'}>{slotMessage}</Text></Box>}
+      <Button colorScheme="purple" size="sm" isLoading={slotSpinning} loadingText="リール回転中…" onClick={()=>{
+        if(casinoSpinsLeft<=0){playSfx('fail',soundOn);setSlotMessage('このカジノでは10回遊び終えました');show({...room,result:'この訪問での上限10回に到達',resultType:'neutral'});return;}
+        if(s.money<slotBet||slotSpinning){playSfx('fail',soundOn);return;}
+        setCasinoSpinsLeft(v=>Math.max(0,v-1));
+        const sy=['🔴','🟢','💎','🎡','🍀','⚡'];
+        // 3つ揃い確率：ルビー8% / エメラルド5% / ダイヤ2% / ルーレット1% / 🍀2.5% / ⚡2.5%。
+        // 合計当選率21%。残り79%はハズレだが、一部をリーチにして期待感を演出する（当選率自体は変えない）。
+        const roll=Math.random();
+        let final:string[];
+        if(roll<.08) final=['🔴','🔴','🔴'];
+        else if(roll<.13) final=['🟢','🟢','🟢'];
+        else if(roll<.15) final=['💎','💎','💎'];
+        else if(roll<.16) final=['🎡','🎡','🎡'];
+        else if(roll<.185) final=['🍀','🍀','🍀'];
+        else if(roll<.21) final=['⚡','⚡','⚡'];
+        else if(Math.random()<.55){
+          const reachSymbol=pick(sy);
+          final=[reachSymbol,reachSymbol,pick(sy.filter(v=>v!==reachSymbol))];
+        }else{
+          do{final=[pick(sy),pick(sy),pick(sy)];}while(final[0]===final[1]&&final[1]===final[2]);
+        }
+        playSfx('casino',soundOn); setS(x=>({...x,money:x.money-slotBet})); setSlotSpinning(true); setSlotWin(false); setSlotMessage('⚡ NEON CHARGE… リール始動！ ⚡'); setSlot(['🎰','🎰','🎰']);
+        const timers=final.map((_,i)=>fastInterval(()=>setSlot(cur=>cur.map((v,j)=>j===i?pick(sy):v)),95));
+        const isReach=final[0]===final[1];
+        const stops=[820,1640,isReach?3520:2520];
+        fastTimeout(()=>{setSlotMessage('✨ ネオンが加速… 第1停止！');},420);
+        stops.forEach((ms,i)=>fastTimeout(()=>{window.clearInterval(timers[i]);setSlot(cur=>cur.map((v,j)=>j===i?final[i]:v));playSfx('slotStop',soundOn);if(i===0)setSlotMessage('第1リール停止！ 中央リールへ…');else if(i===1&&isReach){playSfx('jackpot',soundOn);setSlotMessage(`🔥🔥 激熱リーチ！ ${final[0]} ${final[1]} … 最終リールが減速！ 🔥🔥`);}else if(i===1)setSlotMessage('第2リール停止！ 最終リールに注目…');else setSlotMessage('⚡ 3リール停止！ 運命の判定… ⚡');},ms));
+        if(isReach){
+          fastTimeout(()=>{playSfx('roulette',soundOn);setSlotMessage(`🔥 ${final[0]} ${final[1]} ── 止まれ…！ 最終リール超減速！`);},2380);
+          fastTimeout(()=>{playSfx('jackpot',soundOn);setSlotMessage('⚡⚡ ラスト1コマ…！ ⚡⚡');},3060);
+        }
+        fastTimeout(()=>{
+          let mult=0; let label='';
+          if(final.every(v=>v==='🔴')){mult=5;label='ルビー';}
+          if(final.every(v=>v==='🟢')){mult=10;label='エメラルド';}
+          if(final.every(v=>v==='💎')){mult=30;label='ダイヤモンド';}
+          if(final.every(v=>v==='🍀')){
+            const gain=Math.floor(slotBet/10);
+            playSfx('jackpot',soundOn);setSlotWin(true);setSlotMessage(`🍀🍀🍀 LUCK JACKPOT！ 運気 +${gain}！ 🍀🍀🍀`);
+            setS(x=>({...x,luck:x.luck+gain}));
+            show({...room,result:`🍀揃い！ 運気 +${gain}`,resultType:'success'});
+            setSlotSpinning(false);fastTimeout(()=>setSlotWin(false),2400);return;
+          }
+          if(final.every(v=>v==='⚡')){
+            const gain=Math.floor(slotBet/20);
+            playSfx('jackpot',soundOn);setSlotWin(true);setSlotMessage(`⚡⚡⚡ ENERGY JACKPOT！ 残り回数 +${gain}！ ⚡⚡⚡`);
+            setS(x=>({...x,turnsLeft:x.turnsLeft+gain}));
+            show({...room,result:`⚡揃い！ 残り回数 +${gain}`,resultType:'success'});
+            setSlotSpinning(false);fastTimeout(()=>setSlotWin(false),2400);return;
+          }
+          if(final.every(v=>v==='🎡')){
+            playSfx('jackpot',soundOn);setSlotWin(true);
+            setSlotMessage('🎡🎡🎡 ルーレット揃い！ 配当倍率を抽選中…');
+            show({...room,result:'ルーレット揃い！ 10〜50倍ルーレット突入！',resultType:'gold'});
+            const candidates=[10,15,20,25,30,35,40,45,50]; let rouletteTick=0;
+            const rouletteTimer=fastInterval(()=>{const shown=candidates[rouletteTick%candidates.length];setSlotMessage(`🎡 倍率ルーレット回転中… ${shown}倍！？`);playSfx('slotStop',soundOn);rouletteTick++;},125);
+            fastTimeout(()=>{window.clearInterval(rouletteTimer);const rouletteMult=ri(10,50);const prize=slotBet*rouletteMult;setSlotMessage(`🎉 倍率決定！ ${rouletteMult}倍！！ +${prize}円 🎉`);playSfx('jackpot',soundOn);setS(x=>({...x,money:x.money+prize}));show({...room,result:`ルーレット配当 ${rouletteMult}倍！ +${prize}円`,resultType:'gold'});setSlotSpinning(false);fastTimeout(()=>setSlotWin(false),2200);},2100);
+            return;
+          }
+          if(mult){playSfx('jackpot',soundOn);setSlotWin(true);setSlotMessage(`✨ ${label}が3つ揃った！ ${mult}倍！ ✨`);setS(x=>({...x,money:x.money+slotBet*mult}));show({...room,result:`${label}揃い！ ${mult}倍 / +${slotBet*mult}円`,resultType:'gold'});fastTimeout(()=>setSlotWin(false),2200);}
+          else{playSfx('fail',soundOn);setSlotMessage('残念…今回は3つ揃わなかった');show({...room,result:'ハズレ… 次の勝負へ！',resultType:'neutral'});}
+          setSlotSpinning(false);
+        },isReach?3820:2820);
+      }} isDisabled={casinoSpinsLeft<=0}>スロットを回す</Button>
+      <Box bg="blackAlpha.500" border="1px solid" borderColor="purple.500" rounded="xl" p={2.5}>
+        <Text fontSize="11px" fontWeight="900" color="purple.200" mb={1.5} textAlign="center">🎰 配当表</Text>
+        <Stack spacing={1}>
+          {[['🔴 🔴 🔴','ルビー揃い 8%','5倍','red.300'],['🟢 🟢 🟢','エメラルド揃い 5%','10倍','green.300'],['💎 💎 💎','ダイヤモンド揃い 2%','30倍','cyan.200'],['🎡 🎡 🎡','ルーレット揃い 1%','10〜50倍','yellow.200'],['🍀 🍀 🍀','幸運揃い 2.5%','運気 +ベット÷10','green.200'],['⚡ ⚡ ⚡','回数揃い 2.5%','回数 +ベット÷20','orange.200']].map(([icons,name,payout,color])=><Flex key={name as string} px={2} py={1} bg="whiteAlpha.100" rounded="md" align="center"><Text fontSize="11px" minW="82px">{icons}</Text><Text fontSize="9px" color="gray.200" flex="1">{name}</Text><Text fontSize="10px" fontWeight="900" color={color}>{payout}</Text></Flex>)}
+          <Text mt={1.5} fontSize="9px" color="gray.400" textAlign="center">ベット：20〜500円 / 20円刻み（上限のみ500円）</Text>
+        </Stack>
+      </Box>
+    </Stack>;
+    if(kind==='itembox')return <Stack spacing={2}><Center><Icon as={FaBoxOpen} boxSize={10} color={itemBoxOpening?'yellow.200':'purple.300'} animation={itemBoxOpening?'slotJackpot .35s ease-in-out infinite alternate':undefined}/></Center><Button w="100%" colorScheme="purple" isLoading={itemBoxOpening} loadingText="箱を開封中…" isDisabled={itemBoxOpening} onClick={()=>{if(itemBoxOpening)return;setItemBoxOpening(true);playSfx('roulette',soundOn);show({...room,result:'箱の鍵が外れた… 中身を確認中…',resultType:'neutral'});fastTimeout(()=>{const item=pick([makeItem('mirror',3),makeItem('ring',6),makeItem('sage_gem'),makeItem('party_set'),makeItem('shop_ticket')]);addItem(item);playSfx('item',soundOn);setItemBoxOpening(false);show({...room,kind:undefined,desc:'箱の中から光るアイテムが現れた！',result:`${item.name} を獲得！`,resultType:'gold'});},1200);}}>箱を開ける</Button></Stack>;
+    if(kind==='forge'){
+      const cap=(it:Item)=>it.id==='mirror'?8:it.id==='ring'?15:(it.id==='money_tree'||it.id==='blessing_charm')?3:null;
+      const upgradable=s.items.filter(i=>{const c=cap(i);return c!==null && (i.paramN||1)<c;});
+      if(forgeUsed)return <Box p={3} bg="whiteAlpha.100" rounded="lg" border="1px solid" borderColor="green.500"><Text fontSize="sm" fontWeight="900" color="green.200" textAlign="center">この鍛冶屋での強化は完了しました</Text></Box>;
+      if(upgradable.length===0)return <Text fontSize="sm" color="gray.200" textAlign="center">強化できるアイテムがありません（上限到達）</Text>;
+      return <Stack spacing={1}>{upgradable.map((it,i)=>{const c=cap(it)!;return <Action key={i} title={`${it.name} を無料で強化`} sub={`上限 ★${c} / この部屋では1回だけ`} onClick={()=>{const before=it.paramN||1;const boost=ri(1,3);const after=Math.min(c,before+boost);playSfx('upgrade',soundOn);setS(x=>({...x,items:x.items.map(v=>v===it?makeItem(v.id,after):v)}));setForgeUsed(true);show({...room,result:`${it.name} → ★${after} に強化！${after===c?'（上限）':''}`,resultType:'success'});}}/>})}</Stack>;
+    }
+    if(kind==='mystery')return <Center w="100%" textAlign="center"><VStack w="100%" maxW="280px" spacing={2}><Text fontSize="xs" color="yellow.200">中身は5種類のうちどれか1つ</Text><Button mx="auto" display="block" w="220px" colorScheme="yellow" color="black" fontWeight="900" onClick={()=>{if(s.money<1000){playSfx('fail',soundOn);show({...room,result:'所持金が足りない…',resultType:'danger'});return;}playSfx('buy',soundOn);setS(x=>({...x,money:x.money-1000}));const reward=pick<Item>([makeItem('ruby',3),makeItem('emerald',3),makeItem('diamond',3),makeItem('mirror',ri(5,8)),makeItem('ring',ri(5,15))]);addItem(reward);playSfx(reward.type==='gem'?'gem':'item',soundOn);show({...room,kind:undefined,result:`落札商品：${reward.name}${reward.type==='gem'?' ×3':''} を獲得！`,resultType:'gold'});}}>商品を買う（1000円）</Button></VStack></Center>;
+    if(kind==='survey'){const sv=room.payload as {q:string;a:string;b:string;wa:number;wb:number;genre:string};const vote=(choice:'a'|'b')=>{if(eventAnimating)return;setEventAnimating(true);const va=ri(0,sv.wa),vb=ri(0,sv.wb);const chosenVotes=choice==='a'?va:vb;const otherVotes=choice==='a'?vb:va;const pickedLabel=choice==='a'?sv.a:sv.b;playSfx('click',soundOn);show({...room,result:`女の子「${pickedLabel}なんだね！ ちょっと集計するから待ってて…」`,resultType:'neutral'});window.setTimeout(()=>{playSfx('roulette',soundOn);show({...room,result:`女の子「結果が出たよ！ ${sv.a}は${va}票、${sv.b}は${vb}票！」`,resultType:'neutral'});},900);window.setTimeout(()=>{if(va===vb){playSfx('click',soundOn);show({...room,kind:undefined,result:`女の子「まさかの同票！ 今回は引き分けだね！」 ／ ${sv.a} ${va}票・${sv.b} ${vb}票 ／ 運気変化なし`,resultType:'neutral'});setEventAnimating(false);return;}const win=chosenVotes>otherVotes;const delta=win?ri(8,10):-ri(3,6);patch(current=>({luck:current.luck+delta}));playSfx(win?'success':'fail',soundOn);show({...room,kind:undefined,result:`女の子「${win?'やった！あなたは多数派だよ！':'あらら…少数派だったみたい。'}」 ／ ${sv.a} ${va}票・${sv.b} ${vb}票 ／ 運気 ${delta>0?'+':''}${delta}`,resultType:win?'success':'danger'});setEventAnimating(false);},2800);};return <Stack spacing={2}><Box p={3} bg="pink.950" border="1px solid" borderColor="pink.500" rounded="xl"><HStack align="start" spacing={2}><Center flexShrink={0} w="38px" h="38px" rounded="full" bg="pink.800" border="1px solid" borderColor="pink.300"><Text fontSize="xl">👧</Text></Center><Box flex="1"><Text fontSize="9px" color="pink.200" mb={1}>アンケート娘 / {sv.genre}</Text><Box px={2.5} py={2} bg="whiteAlpha.100" borderRadius="lg" position="relative"><Text fontSize="11px" color="white" fontWeight="800" lineHeight="1.65">「{sv.q}」</Text></Box></Box></HStack>{eventAnimating&&<Text mt={2} fontSize="9px" color="pink.100" textAlign="center">女の子が集計結果を確認しています…</Text>}</Box><Box px={3} py={2} bg="blackAlpha.500" border="1px solid" borderColor="pink.700" rounded="lg"><Text fontSize="9px" color="pink.100" lineHeight="1.6">どちらかを選ぶとアンケート結果を集計。あなたが多数派なら運気 +8〜10、少数派なら運気 -3〜6。同票なら変化なし。</Text></Box><SimpleGrid columns={2} spacing={2}><Button h="48px" colorScheme="pink" variant="outline" isDisabled={eventAnimating} onClick={()=>vote('a')}>{sv.a}</Button><Button h="48px" colorScheme="pink" variant="outline" isDisabled={eventAnimating} onClick={()=>vote('b')}>{sv.b}</Button></SimpleGrid></Stack>;}
+    if(kind==='atm'){if(atmDeposit>0)return <Stack spacing={2}><Box p={3} bg="cyan.950" border="1px solid" borderColor="cyan.500" rounded="xl"><Text fontSize="10px" color="cyan.200">前回の預金</Text><Text fontSize="2xl" color="yellow.200" fontWeight="black" textAlign="center">{atmDeposit}円 → {atmDeposit*5}円</Text></Box><Button colorScheme="cyan" onClick={()=>{const pay=atmDeposit*5;patch(current=>({money:current.money+pay}));setAtmDeposit(0);playSfx('jackpot',soundOn);show({...room,kind:undefined,result:`ATM満期：${pay}円を受け取った！`,resultType:'gold'});}}>5倍になったお金を受け取る</Button></Stack>;const amount=Math.max(0,Math.floor(Number(atmInput)||0));return <Stack spacing={2}><Box p={3} bg="cyan.950" border="1px solid" borderColor="cyan.500" rounded="xl"><Text fontSize="10px" color="cyan.100">次にATMへ遭遇すると預けた金額が5倍になります。ゲーム終了で預金は消えます。</Text></Box><Input type="number" min={0} value={atmInput} onChange={e=>setAtmInput(e.target.value)} placeholder={`預ける金額（所持金 ${s.money}円）`} bg="blackAlpha.500"/><HStack><Button flex="1" variant="outline" colorScheme="cyan" onClick={()=>setAtmInput(String(s.money))}>全額</Button><Button flex="2" colorScheme="cyan" isDisabled={amount<=0||amount>s.money} onClick={()=>{patch(current=>({money:current.money-amount}));setAtmDeposit(amount);setAtmInput('');playSfx('coin',soundOn);show({...room,kind:undefined,result:`ATMに${amount}円を預けた。次回は${amount*5}円！`,resultType:'success'});}}>預ける</Button></HStack></Stack>;}
+    if(kind==='legendshop'){const goods=[makeItem('yata_mirror'),makeItem('kusanagi'),makeItem('immortal_mag')];return <Stack spacing={2}><Box px={3} py={2} bg="blackAlpha.500" border="1px solid" borderColor="yellow.700" rounded="lg"><Text fontSize="9px" color="yellow.100">この店では神器の購入だけでなく、持っているルビー・エメラルド・ダイヤモンドも売却できます。下のアイテム欄から宝石を選んでください。</Text></Box>{goods.map((it,i)=><Box key={it.id} p={2.5} bg="rgba(44,30,5,.72)" border="1px solid" borderColor="yellow.600" rounded="lg"><Flex align="start" gap={2}><Icon as={it.icon||FaStar} color="yellow.200" mt={1}/><Box flex="1"><Text fontSize="11px" color="yellow.100" fontWeight="900">{it.name} / {it.price}円</Text><Text mt={1} fontSize="9px" color="gray.200" lineHeight="1.55">{it.desc}</Text></Box></Flex><Button mt={2} w="100%" size="sm" colorScheme="yellow" color="black" isDisabled={legendShopUsed||s.money<it.price} onClick={()=>{if(legendShopUsed||s.money<it.price){playSfx('fail',soundOn);return;}if(s.items.length>=3&&it.type!=='gem'){playSfx('click',soundOn);setPendingOverflow(it);setPendingOverflowPurchase({source:'legendshop',cost:it.price});return;}patch(current=>({money:current.money-it.price}));addItem(it);setLegendShopUsed(true);playSfx('jackpot',soundOn);show({...room,result:`${it.name} を購入！ この訪問での購入は完了。`,resultType:'gold'});}}>購入する</Button></Box>)}</Stack>;}
+    if(kind==='warp')return <Stack spacing={1.5} w="100%"><Center position="relative" h={{base:'68px',md:'78px'}} overflow="hidden"><Box position="absolute" w={{base:'62px',md:'70px'}} h={{base:'62px',md:'70px'}} rounded="full" bg="conic-gradient(#22d3ee,#8b5cf6,#2563eb,#22d3ee)" opacity={warpAnimating ? .9 : .35} animation={warpAnimating?'warpSpin .45s linear infinite':'none'} boxShadow={warpAnimating?'0 0 30px rgba(34,211,238,.75)':'0 0 14px rgba(34,211,238,.25)'}/><Box position="absolute" w={{base:'42px',md:'48px'}} h={{base:'42px',md:'48px'}} rounded="full" bg="#05060a"/><Text zIndex={2} px={2} fontSize={{base:'9px',md:'10px'}} color="cyan.100" fontWeight="900" textAlign="center">{warpMessage||'ワープ先を選択'}</Text></Center><SimpleGrid columns={{base:1,md:3}} spacing={1.5}>{[['小さなワープホール','0 ～ +100階',0,100],['大きなワープホール','-30 ～ +200階',-30,200],['巨大なワープホール','-300 ～ +800階',-300,800]].map(([title,sub,min,max]:any)=><Button key={title} h={{base:'44px',md:'58px'}} py={1.5} px={2} bg="linear-gradient(180deg,rgba(20,42,52,.94),rgba(5,12,18,.96))" color="cyan.50" border="1px solid rgba(103,232,249,.34)" borderRadius="6px" _hover={{bg:'rgba(8,47,73,.95)',borderColor:'cyan.300'}} isDisabled={warpAnimating} onClick={()=>warp(min,max,title)}><VStack spacing={0}><Text fontSize={{base:'11px',md:'12px'}} fontWeight="900" noOfLines={1}>{title}</Text><Text fontSize={{base:'9px',md:'10px'}} color="cyan.200">{sub}</Text></VStack></Button>)}</SimpleGrid></Stack>;
+    if(kind==='auction')return <Stack spacing={1}><Action title="乱反射の鏡★8 / 500円" onClick={()=>buyAuction(makeItem('mirror',8))}/><Action title="幸運の指輪★15 / 500円" onClick={()=>buyAuction(makeItem('ring',15))}/></Stack>;
+    if(kind==='ultimate')return <Stack spacing={2}>
+      <Box p={2.5} bg="rgba(15,10,2,.72)" border="1px solid" borderColor="yellow.500" rounded="xl">
+        <Text fontSize="11px" fontWeight="900" color="yellow.200" textAlign="center" mb={2}>🎡 究極のルーレット 出現内容</Text>
+        <SimpleGrid columns={2} spacing={1.5}>
+          {[['✨','階数 1.5倍'],['💰','所持金 +5,000円'],['⚡','回数 +5 ＆ 運気 +10'],['💀','地獄の門へ']].map(([ic,txt])=><HStack key={txt} px={2} py={1.5} bg="blackAlpha.500" rounded="md" border="1px solid" borderColor="whiteAlpha.200"><Text>{ic}</Text><Text fontSize="9px" color="gray.100" fontWeight="800">{txt}</Text></HStack>)}
+        </SimpleGrid>
+        <Text mt={1.5} fontSize="8px" color="yellow.100" textAlign="center">4種類のうち1つが選ばれます</Text>
+      </Box>
+      <Center position="relative" h="148px" overflow="hidden">
+        <Box position="absolute" w="128px" h="128px" rounded="full" bg="conic-gradient(#fde047,#a855f7,#ef4444,#f59e0b,#fde047)" opacity={ultimateSpinning ? .92 : .42} animation={ultimateSpinning?'ultimateWheel .55s linear infinite':'none'} boxShadow={ultimateSpinning?'0 0 42px rgba(250,204,21,.75)':'0 0 18px rgba(250,204,21,.22)'}/>
+        <Box position="absolute" w="105px" h="105px" rounded="full" bg="#09070a" border="2px solid" borderColor="yellow.300" boxShadow="inset 0 0 26px rgba(168,85,247,.32)"/>
+        {ultimateSpinning&&<><Box position="absolute" w="145px" h="145px" rounded="full" border="2px solid" borderColor="yellow.200" animation="hellRing .8s ease-out infinite"/><Box position="absolute" w="170px" h="170px" rounded="full" border="1px solid" borderColor="purple.300" animation="hellRing 1.05s ease-out .2s infinite"/></>}
+        <VStack zIndex={2} spacing={1}><Text fontSize="9px" letterSpacing=".18em" color="yellow.100">DIVINE FATE</Text><Text px={3} textAlign="center" fontSize="sm" fontWeight="black" color="yellow.100" textShadow="0 0 12px rgba(250,204,21,.8)" animation={ultimateSpinning?'ultimateFlash .24s ease-in-out infinite':'none'}>{ultimateMessage}</Text></VStack>
+      </Center>
+      <Button w="100%" colorScheme="yellow" color="black" h="48px" isDisabled={ultimateSpinning||eventAnimating} isLoading={ultimateSpinning||eventAnimating} loadingText={ultimateSpinning?'神々の運命が回転中…':'結果を刻んでいる…'} onClick={()=>{if(ultimateSpinning||eventAnimating)return;setUltimateSpinning(true);setUltimateMessage('運命の輪が加速している…');playSfx('roulette',soundOn);const labels=['✨ 階数 1.5倍！','💰 お金 +5,000円！','⚡ 回数+5 ＆ 運気+10！','💀 地獄の門'];let idx=0;const timer=fastInterval(()=>{setUltimateMessage(labels[idx%labels.length]);playSfx(idx%3===0?'jackpot':'slotStop',soundOn);idx++;},95);fastTimeout(()=>{setUltimateMessage('⚡ 最終判定 ⚡');playSfx('jackpot',soundOn);},1750);fastTimeout(()=>{window.clearInterval(timer);const r=ri(0,3);const chosen=labels[r];setUltimateMessage(chosen);setUltimateSpinning(false);setEventAnimating(true);playSfx('jackpot',soundOn);window.setTimeout(()=>{if(r===0){const target=Math.max(1,Math.floor(s.floor*1.5));const delta=target-s.floor;setEventAnimating(false);show({...room,result:`究極ルーレット結果：${chosen} / ${target}階へ移動開始！`,resultType:'gold'});fastTimeout(()=>moveByEvent(delta,'究極ルーレット'),350);return;}if(r===1)patch(current=>({money:current.money+5000}));if(r===2)patch(current=>({turnsLeft:current.turnsLeft+5,luck:current.luck+10}));if(r===3){playSfx('hell',soundOn);patch({inHell:true});setRoomIntro(true);setHellDie(null);setHellRolling(false);setHellMessage('「5」が出れば生還。1回振るごとに残り回数を1消費する。');setEventAnimating(false);show({tier:5,title:'地獄の門',desc:'ここは脱出判定専用フロア。サイコロで「5」を出した瞬間だけ地上へ戻れる。失敗しても挑戦は続くが、振るたびに残り回数を1消費する。',result:'脱出条件：5を出せ / 成功率 1/6',resultType:'danger',kind:'hell'});return;}setEventAnimating(false);show({...room,kind:undefined,result:`究極ルーレット結果：${chosen}`,resultType:'gold'});},2000);},2850);}}>運命のルーレットを回す！</Button>
+    </Stack>;
+    if(kind==='god')return <Stack spacing={1}>{[makeItem('mirror',8),makeItem('ring',15),makeItem('money_tree',3),makeItem('blessing_charm',3)].map((it,i)=><Action key={i} title={it.name} onClick={()=>{playSfx('item',soundOn);addItem(it);show({...room,kind:undefined,result:`${it.name} 獲得！`,resultType:'gold'})}}/>)}</Stack>;
+    if(kind==='hell')return <Stack spacing={2}>
+      <Box p={3} bg="red.950" border="1px solid" borderColor="red.700" rounded="xl"><Text fontSize="11px" color="red.100" fontWeight="800">💀 脱出ルール</Text><Text mt={1} fontSize="10px" color="red.200">サイコロで「5」が出れば即生還。5以外は失敗。振るたびに残り回数 -1。</Text><HStack mt={2} justify="center"><Badge colorScheme="red">成功率 1 / 6</Badge><Badge colorScheme="orange">残り {s.turnsLeft} 回</Badge></HStack></Box>
+      <Center position="relative" h="118px" bg="radial-gradient(circle,rgba(127,29,29,.62),rgba(0,0,0,.78) 72%)" border="2px solid" borderColor={hellRolling?'red.200':'red.800'} rounded="2xl" boxShadow={hellRolling?'0 0 38px rgba(248,113,113,.85), inset 0 0 32px rgba(127,29,29,.65)':'inset 0 0 20px rgba(0,0,0,.6)'} overflow="hidden" animation={hellRolling?'hellShake .14s linear infinite':'none'}>
+        {hellRolling&&<><Box position="absolute" w="76px" h="76px" rounded="full" border="2px solid" borderColor="red.300" animation="hellRing .55s ease-out infinite"/><Box position="absolute" w="76px" h="76px" rounded="full" border="1px solid" borderColor="orange.200" animation="hellRing .75s ease-out .15s infinite"/><Text position="absolute" top="6px" fontSize="8px" letterSpacing=".20em" color="red.100" fontWeight="900">HELL DICE // ONLY 5 ESCAPES</Text></>}
+        <Text zIndex={2} fontSize="6xl" fontWeight="black" color={hellDie===5?'yellow.200':'red.100'} textShadow={hellRolling?'0 0 18px rgba(248,113,113,.9)':'0 0 8px rgba(0,0,0,.8)'} animation={hellRolling?'hellPulse .12s ease-in-out infinite alternate':undefined}>{hellDie??'🎲'}</Text>
+      </Center>
+      <Text minH="34px" fontSize="xs" color="red.100" textAlign="center" fontWeight="700">{hellMessage}</Text>
+      <Button w="100%" h="46px" colorScheme="red" isDisabled={hellRolling||eventAnimating||s.turnsLeft<=0} isLoading={hellRolling} loadingText="地獄のサイコロが暴れている…" onClick={()=>{if(hellRolling||s.turnsLeft<=0)return;setHellRolling(true);setHellMessage('🔥 門が震えている…「5」だけが生還を許される！');playSfx('hell',soundOn);let n=0;const timer=fastInterval(()=>{const d=ri(1,6);setHellDie(d);playSfx(n%3===0?'roulette':'slotStop',soundOn);n++;if(n===9)setHellMessage('⚠️ 最終判定が近い…！');},70);fastTimeout(()=>{window.clearInterval(timer);setHellMessage('……出目、確定。');playSfx('hell',soundOn);},1250);fastTimeout(()=>{const roll=ri(1,6);setHellDie(roll);setHellRolling(false);setS(x=>({...x,turnsLeft:Math.max(0,x.turnsLeft-1)}));if(roll===5){setEventAnimating(true);setHellMessage('🔥 5……！ 門が大きく震え始めた……');playSfx('hell',soundOn);window.setTimeout(()=>{playSfx('jackpot',soundOn);setHellMessage('🔥 門が砕けるように開いた！ 生還成功！');setS(x=>({...x,inHell:false}));setEventAnimating(false);show({tier:1,title:'地獄から生還',desc:'5を引き当て、閉ざされていた門が開いた。元の世界へ帰還した。',result:'5が出た！ 生還成功！',resultType:'success'});},1300);}else{playSfx('fail',soundOn);setHellMessage(`${roll}…！ 門は開かない。5を出すまで脱出できない。`);show({...room,result:`出目 ${roll}：脱出失敗（5のみ成功）`,resultType:'danger'});}},1600);}}>サイコロを振る（回数 -1）</Button>
+      {s.turnsLeft<=0&&<Text fontSize="10px" color="orange.200" textAlign="center">残り回数が0です。下の「ゲームを終了する」からリザルトへ進めます。</Text>}
+    </Stack>;
+    return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[room,s,rocks,picks,shop,bj,slotBet,slot,slotSpinning,slotWin,slotMessage,casinoSpinsLeft,soundOn,doorChoices,gameSpeed,forgeUsed,fortuneReading,boxRewards,boxSelected,boxRevealAll,itemBoxOpening,ultimateSpinning,ultimateMessage,bjPhase,eventAnimating,atmDeposit,atmInput,legendShopUsed,warpAnimating,warpMessage]);
+
+  const roomIdentity=useMemo(()=>{
+    const k=room.kind||''; const t=room.title;
+    if(k==='hell')return {icon:FaSkull,color:'red.300',glow:'rgba(239,68,68,.45)'};

@@ -634,3 +634,20 @@ v78のランキングdocumentには `playerId` フィールドが追加されて
 - Normal live updates now write only the current player's progress fields instead of rewriting the whole `players` map.
 - Final completion uses a Firestore transaction so 2-4 simultaneous finishes are serialized safely.
 - A finished client automatically retries its final completion sync every 2.5 seconds until Firestore confirms it, preventing spectator/result screens from waiting forever after a transient network failure.
+
+## v104 追加ステージ
+- Tier2: スクラッチくじの部屋（ルビー25%/800円、エメラルド15%/1200円、ダイヤ5%/2000円）
+- Tier3: 運命の扉（最大5段階のプッシュ・ユア・ラック。途中精算可能）
+- Tier3: 海賊船の隠し部屋（10箱から3箱選択。銅10%/銀5%/金1%/ダイヤ0.1%）
+- Tier4: 封印された宝物庫（専用の鍵所持数を使用して複数回開封可能）
+- Tier5: 天国への階段（現在階数を1.1〜1.5倍へ移動）
+
+鍵は通常の3枠アイテムとは別管理で、1ラン中のみ保持されます。
+
+## v105 Master Command
+- Start screen has an intentionally invisible developer hit area immediately to the right of the 「ゲームを始める」 button.
+- Opening it shows MASTER COMMAND for developer testing.
+- Configure starting floor, luck, turns, money, and up to 3 inventory slots.
+- Choose any catalog stage as the first room.
+- Queue any number of later rooms; queued rooms are consumed in order, then normal random room selection resumes.
+- Developer runs do not update local high score, local play history, or Firebase rankings.
