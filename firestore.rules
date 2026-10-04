@@ -52,6 +52,41 @@ service cloud.firestore {
 
 
 
+    // ランク戦トロフィーランキング。
+    // 週間は現在値を更新でき、総合は終了した週の自己ベストのみ上書きできる。
+    function validTrophyWrite(rankingId) {
+      return request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.playerId == rankingId
+        && request.resource.data.playerId is string
+        && request.resource.data.playerId.size() >= 12
+        && request.resource.data.playerId.size() <= 80
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 12
+        && request.resource.data.trophies is int
+        && request.resource.data.trophies >= -1000000
+        && request.resource.data.trophies <= 1000000
+        && request.resource.data.weekKey is string
+        && request.resource.data.weekKey.size() == 10
+        && request.resource.data.keys().hasOnly(['uid','playerId','name','trophies','weekKey','updatedAt']);
+    }
+
+    match /trophyRankingsWeekly/{weekKey}/entries/{rankingId} {
+      allow read: if true;
+      allow create, update: if validTrophyWrite(rankingId)
+        && request.resource.data.weekKey == weekKey;
+      allow delete: if request.auth != null;
+    }
+
+    match /trophyRankingsAlltime/{rankingId} {
+      allow read: if true;
+      allow create: if validTrophyWrite(rankingId);
+      allow update: if validTrophyWrite(rankingId)
+        && request.resource.data.trophies >= resource.data.trophies;
+      allow delete: if request.auth != null;
+    }
+
     // 2〜4人用オンライン対戦ルーム。3桁コードを共有して参加する。
     function battlePlayer(data) {
       return request.auth != null

@@ -16,6 +16,7 @@ import { firebaseReady } from '../lib/firebase';
 import { getCurrentMonthKey, getCurrentMonthLabel, loadRankingView, previewRankings, submitRankings, type MyRankingResult, type RankingEntry, type RankingScope, type ScorePreviewBundle } from '../lib/leaderboard';
 import { appendPlayHistory, getLocalHistorySummary, getOrCreatePlayerId, loadPlayHistory } from '../lib/localProfile';
 import { cancelBattleRoom, createBattleRoom, getBattlePlayers, joinBattleRoom, subscribeBattleRoom, updateBattleProgress, type BattleRole, type BattleRoom } from '../lib/battle';
+import { advanceRankCpu, applyTrophyDelta, clearPreviousWeekSnapshot, createRankCpuPlayers, getJstWeekLabel, loadMyTrophyRanking, loadTrophyProfile, loadTrophyRankings, rankMatchOrder, submitFinalizedWeekToAlltime, submitWeeklyTrophies, trophyDeltaForPlace, type RankCpu, type TrophyProfile, type TrophyRankingEntry, type TrophyRankingScope } from '../lib/ranked';
 
 import { Action, Bullet, HelpSection, InfoModal, StageGuideModal, StagePreviewModal } from './GameModals';
 import { baseState, itemPalette, makeItem, masterItemIds, pick, ri, stageCatalog, stageRouteMap, tierMeta, type FatePending, type KeyKind, type StageCatalogEntry } from './gameConfig';
@@ -87,7 +88,7 @@ export default function InfiniteElevator(){
   const [devAutoPlay,setDevAutoPlay]=useState(false);
   const fastTimeout=(fn:()=>void,ms:number)=>window.setTimeout(fn,ms/gameSpeed);
   const fastInterval=(fn:()=>void,ms:number)=>window.setInterval(fn,ms/gameSpeed);
-  const rules=useDisclosure(), guide=useDisclosure(), itemGuide=useDisclosure(), rank=useDisclosure(), stagePreview=useDisclosure(), inventoryPanel=useDisclosure(), logPanel=useDisclosure(), nameEdit=useDisclosure(), historyModal=useDisclosure(), resetRecords=useDisclosure(), battleLobby=useDisclosure(), battleResult=useDisclosure();
+  const rules=useDisclosure(), guide=useDisclosure(), itemGuide=useDisclosure(), rank=useDisclosure(), trophyRank=useDisclosure(), rankedResult=useDisclosure(), stagePreview=useDisclosure(), inventoryPanel=useDisclosure(), logPanel=useDisclosure(), nameEdit=useDisclosure(), historyModal=useDisclosure(), resetRecords=useDisclosure(), battleLobby=useDisclosure(), battleResult=useDisclosure();
   const [previewStage,setPreviewStage]=useState<StageCatalogEntry|null>(null);
   const [statusDetail,setStatusDetail]=useState<'turns'|'luck'|'money'|null>(null);
   const [battleCodeInput,setBattleCodeInput]=useState('');
@@ -102,6 +103,17 @@ export default function InfiniteElevator(){
   const [spectateRole,setSpectateRole]=useState<BattleRole|null>(null);
   const battleStartedRef=useRef(false);
   const battleUnsubRef=useRef<null|(()=>void)>(null);
+  // ランク戦はローカルCPU 3人との4人戦。AIのstrategyは内部状態だけに保持し画面には公開しない。
+  const [rankedActive,setRankedActive]=useState(false);
+  const [rankedCpus,setRankedCpus]=useState<RankCpu[]>([]);
+  const [rankedPlayerFinished,setRankedPlayerFinished]=useState(false);
+  const rankedAwardedRef=useRef(false);
+  const [rankedMatchResult,setRankedMatchResult]=useState<null|{place:number;delta:number;before:number;after:number;order:ReturnType<typeof rankMatchOrder>}>(null);
+  const [trophyProfile,setTrophyProfile]=useState<TrophyProfile>({weekKey:'',trophies:0});
+  const [trophyRankingMode,setTrophyRankingMode]=useState<TrophyRankingScope>('weekly');
+  const [trophyRankingRows,setTrophyRankingRows]=useState<TrophyRankingEntry[]>([]);
+  const [myTrophyRanking,setMyTrophyRanking]=useState<null|{entry:TrophyRankingEntry;rank:number|null}>(null);
+  const [trophyRankingLoading,setTrophyRankingLoading]=useState(false);
   const menuVisualSrc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-v45.png`;
   const menuVisualSrcPc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-pc-v58.png`;
 
@@ -115,6 +127,18 @@ export default function InfiniteElevator(){
     setLocalHistorySummary(getLocalHistorySummary(history));
     setS(x=>({...x,highScore:Math.max(1,h)}));
     setNickname(n);
+    const trophy=loadTrophyProfile();
+    setTrophyProfile(trophy);
+    if(firebaseReady){
+      const safeName=n||'名無しの登山者';
+      // 週が切り替わっていた場合、前週の最終トロフィーを総合ランキングへ確定してからスナップショットを消す。
+      if(trophy.previousWeekKey&&typeof trophy.previousWeekTrophies==='number'){
+        void submitFinalizedWeekToAlltime(id,safeName,trophy.previousWeekTrophies,trophy.previousWeekKey).then(ok=>{
+          if(ok){const cleared=clearPreviousWeekSnapshot(trophy);setTrophyProfile(cleared);}
+        }).catch(()=>{});
+      }
+      void submitWeeklyTrophies(id,safeName,trophy.trophies,trophy.weekKey).catch(()=>{});
+    }
     if(!firebaseReady){
       setRankingStatus('offline');
     }else{
@@ -152,6 +176,17 @@ export default function InfiniteElevator(){
     setRankingMode('monthly');
     void loadRankingMode('monthly');
   };
+
+  const loadTrophyRankingMode=async(mode:TrophyRankingScope)=>{
+    setTrophyRankingMode(mode);setTrophyRankingLoading(true);
+    try{
+      const id=playerId||getOrCreatePlayerId();
+      const [rows,mine]=await Promise.all([loadTrophyRankings(mode),loadMyTrophyRanking(mode,id)]);
+      setTrophyRankingRows(rows);setMyTrophyRanking(mine);
+    }catch{setTrophyRankingRows([]);setMyTrophyRanking(null);}
+    finally{setTrophyRankingLoading(false);}
+  };
+  const openTrophyRanking=()=>{trophyRank.onOpen();void loadTrophyRankingMode('weekly');};
 
 
   useEffect(()=>{
@@ -222,6 +257,37 @@ export default function InfiniteElevator(){
     if(candidates.length===0){setSpectateRole(null);return;}
     if(!spectateRole||!candidates.some(x=>x.role===spectateRole)) setSpectateRole(candidates[0].role);
   },[battleRunFinished,battleRoom,battleRole,spectateRole]);
+
+  // プレイヤーの残り回数が尽きた後は、行動可能なCPUを3秒ごとに1部屋ずつ同時進行させる。
+  useEffect(()=>{
+    if(!rankedActive||!rankedPlayerFinished||rankedAwardedRef.current)return;
+    const hasCpuTurns=rankedCpus.some(cpu=>cpu.turns>0);
+    if(hasCpuTurns){
+      const timer=window.setTimeout(()=>setRankedCpus(cpus=>cpus.map(cpu=>cpu.turns>0?advanceRankCpu(cpu):cpu)),3000);
+      return ()=>window.clearTimeout(timer);
+    }
+
+    rankedAwardedRef.current=true;
+    const order=rankMatchOrder({name:nickname||'あなた',floor:s.floor,luck:s.luck,money:s.money},rankedCpus);
+    const place=order.findIndex(row=>row.isPlayer)+1;
+    const delta=trophyDeltaForPlace(place);
+    const beforeProfile=loadTrophyProfile();
+    const afterProfile=applyTrophyDelta(delta);
+    setTrophyProfile(afterProfile);
+    setRankedMatchResult({place,delta,before:beforeProfile.trophies,after:afterProfile.trophies,order});
+    playSfx(place===1?'jackpot':place===2?'success':'gameover',soundOn);
+    rankedResult.onOpen();
+
+    const id=playerId||getOrCreatePlayerId();
+    const safeName=nickname||'名無しの登山者';
+    if(firebaseReady){
+      // 日付を跨いで週が変わっていた場合も、前週の最終値を総合へ確定する。
+      if(beforeProfile.previousWeekKey&&typeof beforeProfile.previousWeekTrophies==='number'){
+        void submitFinalizedWeekToAlltime(id,safeName,beforeProfile.previousWeekTrophies,beforeProfile.previousWeekKey).catch(()=>{});
+      }
+      void submitWeeklyTrophies(id,safeName,afterProfile.trophies,afterProfile.weekKey).catch(()=>{});
+    }
+  },[rankedActive,rankedPlayerFinished,rankedCpus,nickname,s.floor,s.luck,s.money,soundOn,playerId,rankedResult.isOpen]);
 
   const log=(m:string)=>setS(x=>({...x,logs:[m,...x.logs]}));
   const patch=(p:Partial<State>|((current:State)=>Partial<State>))=>setS(current=>({...current,...(typeof p==='function'?p(current):p)}));
@@ -297,8 +363,14 @@ export default function InfiniteElevator(){
 
   const resetRunCore=()=>{playSfx('start',soundOn);runRecordedRef.current=false;setNewPersonalBest(false);setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);setRoomIntro(false);scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setKeys({copper:0,silver:0,gold:0,diamond:0});setScratchRevealed([false,false,false]);setScratchPaid(false);setFateStage(0);setFateDone(false);setFateOpeningDoor(null);setFatePending({money:500,luck:0,turns:0,items:[],labels:['初期報酬 500円']});setPirateBoxes([]);setPiratePicks([]);setPirateRevealAll(false);setItemGrantQueue([]);setS({...baseState,highScore:s.highScore});setMenu(false);setGameover(false);setDoors(true);setRoom({tier:1,title:'エレベーターホール',desc:'エレベーターに乗りました。ボタンを押して上の階を目指しましょう！'});};
   const clearBattleSession=()=>{battleUnsubRef.current?.();battleUnsubRef.current=null;setBattleCode('');setBattleRole(null);setBattleRoom(null);setBattleActive(false);setBattleRunFinished(false);setSpectateRole(null);battleStartedRef.current=false;};
-  const start=()=>{setMasterActive(false);masterRoomQueueRef.current=[];clearBattleSession();resetRunCore();};
-  const startBattleRun=()=>{setMasterActive(false);masterRoomQueueRef.current=[];setBattleActive(true);setBattleRunFinished(false);resetRunCore();};
+  const clearRankedSession=()=>{setRankedActive(false);setRankedCpus([]);setRankedPlayerFinished(false);setRankedMatchResult(null);rankedAwardedRef.current=false;};
+  const start=()=>{setMasterActive(false);masterRoomQueueRef.current=[];clearBattleSession();clearRankedSession();resetRunCore();};
+  const startBattleRun=()=>{setMasterActive(false);masterRoomQueueRef.current=[];clearRankedSession();setBattleActive(true);setBattleRunFinished(false);resetRunCore();};
+  const startRankedRun=()=>{
+    setMasterActive(false);masterRoomQueueRef.current=[];clearBattleSession();
+    setRankedActive(true);setRankedCpus(createRankCpuPlayers());setRankedPlayerFinished(false);setRankedMatchResult(null);rankedAwardedRef.current=false;
+    resetRunCore();
+  };
   const watchBattle=(code:string,role:BattleRole)=>{
     battleUnsubRef.current?.();
     battleUnsubRef.current=subscribeBattleRoom(code,room=>{
@@ -334,6 +406,11 @@ export default function InfiniteElevator(){
       setLocalHistorySummary(getLocalHistorySummary(history));
     }
     setS(x=>{const h=Math.max(x.highScore,x.floor); localStorage.setItem('infinite_elevator_highscore',String(h)); return {...x,highScore:h};});
+    if(rankedActive){
+      // プレイヤー終了後、CPUに残り回数があれば3秒/1部屋で最後まで進ませる。
+      setRankedPlayerFinished(true);
+      return;
+    }
     if(battleActive&&battleCode&&battleRole){
       // 最終操作確定後に完了を送信。結果画面は両者の完了を受信してから開く。
       setBattleRunFinished(true);
@@ -462,7 +539,7 @@ export default function InfiniteElevator(){
   };
 
   const startMasterRun=(stageOverride?:string)=>{
-    clearBattleSession(); playSfx('start',soundOn); runRecordedRef.current=true;
+    clearBattleSession(); clearRankedSession(); playSfx('start',soundOn); runRecordedRef.current=true;
     setNewPersonalBest(false);setScorePreview(null);setScorePreviewError('');setScorePreviewLoading(false);scoreSubmitLockRef.current=false;setScoreSubmitting(false);setScoreSaveMessage('');setScoreSubmitted(false);
     setForgeUsed(false);setAtmDeposit(0);setAtmInput('');setLegendShopUsed(false);setWarpAnimating(false);setWarpMessage('');setKeys({copper:0,silver:0,gold:0,diamond:0});setScratchRevealed([false,false,false]);setScratchPaid(false);setFateStage(0);setFateDone(false);setFateOpeningDoor(null);setFatePending({money:500,luck:0,turns:0,items:[],labels:['初期報酬 500円']});setPirateBoxes([]);setPiratePicks([]);setPirateRevealAll(false);setItemGrantQueue([]);
     const items=masterItems.filter(x=>x.id).map(x=>makeItem(x.id as ItemId,Math.max(1,Math.floor(x.n||1))));
@@ -491,7 +568,10 @@ export default function InfiniteElevator(){
   const setupMining=(tier:number,gem:ItemId)=>{setRocks(Array.from({length:5},()=>{const ok=Math.random()<.60;const r=Math.random();const count=ok?(r<.55?1:r<.85?2:3):0;return {gem:ok?gem:null,count,open:false}}));setPicks(2);show({tier,title:gem==='ruby'?'ルビーの採掘場':gem==='emerald'?'エメラルドの採掘場':'ダイヤモンドの採掘場',desc:'5つの岩から2つ壊そう！宝石が出るかも！',result:'岩を選んで壊そう',kind:'mining'});};
   const setupShop=(tier:number,count:number)=>{const pool=[makeItem('mirror',ri(3,5)),makeItem('ring',ri(6,9)),makeItem('shop_ticket'),makeItem('sage_gem'),makeItem('party_set'),makeItem('money_tree',ri(1,2)),makeItem('blessing_charm',ri(1,2))].sort(()=>Math.random()-.5).slice(0,count).map(item=>({item,sold:false}));setShop(pool);show({tier,title:count===1?'小さなお店':count===3?'大きなお店':'ホームセンター',desc:'アイテムの購入が可能。※宝石のみ売却できます。',result:'ショップ営業中',kind:'shop'});};
 
-  const press=()=>{if(moving||gameover||s.turnsLeft<=0||s.inHell)return; playSfx('door',soundOn); setMoving(true);setDoors(false); let x={...s,items:[...s.items],ringBuff:{...s.ringBuff}}; const protectedByMag=x.items.some(i=>i.id==='immortal_mag'); if(!protectedByMag)x.turnsLeft--; x.items.forEach(i=>{if(i.id==='money_tree')x.money+=100*(i.paramN||1); if(i.id==='blessing_charm')x.luck+=(i.paramN||1); if(i.id==='kusanagi'){x.luck+=2;x.money+=200;}});
+  // プレイヤーがボタンを押したタイミングで、行動可能なCPUもそれぞれ1部屋進む。
+  const stepRankedCpus=()=>{if(rankedActive&&!rankedPlayerFinished)setRankedCpus(cpus=>cpus.map(cpu=>cpu.turns>0?advanceRankCpu(cpu):cpu));};
+
+  const press=()=>{if(moving||gameover||s.turnsLeft<=0||s.inHell)return; stepRankedCpus(); playSfx('door',soundOn); setMoving(true);setDoors(false); let x={...s,items:[...s.items],ringBuff:{...s.ringBuff}}; const protectedByMag=x.items.some(i=>i.id==='immortal_mag'); if(!protectedByMag)x.turnsLeft--; x.items.forEach(i=>{if(i.id==='money_tree')x.money+=100*(i.paramN||1); if(i.id==='blessing_charm')x.luck+=(i.paramN||1); if(i.id==='kusanagi'){x.luck+=2;x.money+=200;}});
     // 幸運の指輪は「次の3回の上昇計算」まで有効。3回目の計算後に解除する。
     const effectiveLuck=x.luck;
     let targetTier=1;
@@ -522,16 +602,15 @@ export default function InfiniteElevator(){
       const revealDelay=targetTier===1?1380:targetTier===2?2100:targetTier===3?3000:4500;
       fastTimeout(()=>{
         window.clearInterval(timer);
-        setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:`素の上昇値：基礎${base} + 運気(${effectiveLuck})×${luckMult}`,locked:true});
+        setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:'',locked:true});
         // 最終的な上昇階数を見せたあと、移動演出を挟んで到着階を明示する。
         const finish=()=>{
-          const multDetail=[mirrorMul>1?`乱反射×${mirrorMul}`:'',yataMul>1?'八咫鏡×2':''].filter(Boolean).join(' ＋ ');
           const destinationFloor=x.floor+finalSteps;
           setOverlay({
             show:true,
             tier:targetTier,
             steps:finalSteps,
-            detail:multDetail?`✨ ${multDetail} 適用！ ${rawSteps} → ${finalSteps}階 / ${finalSteps}階上に進む`:`${finalSteps}階上に進む`,
+            detail:`${finalSteps}階上に進む`,
             locked:true,
           });
           playSfx(targetTier>=3?'jackpot':'arrive',soundOn);
@@ -551,7 +630,7 @@ export default function InfiniteElevator(){
             },900);
           },900);
         };
-        if(mirrorMul>1){fastTimeout(()=>{playSfx('item',soundOn);setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:`🪞 乱反射の鏡★${mirrorMul} 発動！ ${rawSteps}階を ×${mirrorMul} へ！`,locked:true});fastTimeout(finish,900);},650);}else{fastTimeout(finish,650);}
+        if(mirrorMul>1){fastTimeout(()=>{playSfx('item',soundOn);setOverlay({show:true,tier:targetTier,steps:finalSteps,detail:'乱反射の鏡が発動！',locked:true});fastTimeout(finish,900);},650);}else{fastTimeout(finish,650);}
       },revealDelay);
     },420);
   };
@@ -729,18 +808,18 @@ export default function InfiniteElevator(){
     }
     if(kind==='sealedvault'){
       const labels:Record<KeyKind,string>={copper:'銅',silver:'銀',gold:'金',diamond:'ダイヤモンド'};
-      const chestMeta:Record<KeyKind,{icon:string;bg:string;border:string;glow:string}>={
-        copper:{icon:'📦',bg:'linear-gradient(180deg,#7c4a2b,#2f1b12)',border:'#d08a55',glow:'rgba(217,145,91,.55)'},
-        silver:{icon:'🧰',bg:'linear-gradient(180deg,#a7b0ba,#37404a)',border:'#e2e8f0',glow:'rgba(226,232,240,.65)'},
-        gold:{icon:'🎁',bg:'linear-gradient(180deg,#d4a017,#5b4000)',border:'#fde047',glow:'rgba(250,204,21,.75)'},
-        diamond:{icon:'💎',bg:'linear-gradient(180deg,#38bdf8,#123a4a)',border:'#a5f3fc',glow:'rgba(103,232,249,.85)'}
+      const chestMeta:Record<KeyKind,{bg:string;border:string;glow:string}>={
+        copper:{bg:'linear-gradient(180deg,#7c4a2b,#2f1b12)',border:'#d08a55',glow:'rgba(217,145,91,.55)'},
+        silver:{bg:'linear-gradient(180deg,#a7b0ba,#37404a)',border:'#e2e8f0',glow:'rgba(226,232,240,.65)'},
+        gold:{bg:'linear-gradient(180deg,#d4a017,#5b4000)',border:'#fde047',glow:'rgba(250,204,21,.75)'},
+        diamond:{bg:'linear-gradient(180deg,#38bdf8,#123a4a)',border:'#a5f3fc',glow:'rgba(103,232,249,.85)'}
       };
       const openChest=(k:KeyKind)=>{
         if(keys[k]<=0||eventAnimating)return;
         setEventAnimating(true);setVaultOpeningKey(k);setVaultPhase('shake');setKeys(v=>({...v,[k]:v[k]-1}));
         playSfx('roulette',soundOn);show({...room,result:`${labels[k]}の宝箱が震え始めた…`});
         fastTimeout(()=>{setVaultPhase('glow');playSfx('item',soundOn);show({...room,result:'宝箱の隙間から強い光が漏れてくる…'});},520);
-        fastTimeout(()=>{setVaultPhase('open');playSfx(k==='diamond'||k==='gold'?'jackpot':'success',soundOn);show({...room,result:'鍵が外れ、宝箱の蓋がゆっくり開く――'});},1050);
+        fastTimeout(()=>{setVaultPhase('open');playSfx(k==='diamond'||k==='gold'?'jackpot':'success',soundOn);},1050);
         fastTimeout(()=>{
           let luck=0,turns=0;const items:Item[]=[];
           if(k==='copper'){luck=ri(5,10);turns=ri(1,5);}else if(k==='silver'){luck=ri(8,15);turns=ri(3,6);if(Math.random()<1/8)items.push(Math.random()<.5?makeItem('money_tree',2):makeItem('blessing_charm',2));}else if(k==='gold'){luck=ri(10,20);turns=ri(7,8);if(Math.random()<.2)items.push(pick<Item>([makeItem('yata_mirror'),makeItem('kusanagi'),makeItem('immortal_mag')]));}else{luck=ri(20,50);turns=ri(8,12);items.push(pick<Item>([makeItem('yata_mirror'),makeItem('kusanagi'),makeItem('immortal_mag')]));}
@@ -753,7 +832,6 @@ export default function InfiniteElevator(){
         {vaultOpeningKey&&<Center py={2}><Box position="relative" w={{base:'160px',md:'196px'}} h={{base:'126px',md:'148px'}} animation={vaultPhase==='shake'?'vaultChestShake .16s linear infinite':vaultPhase==='glow'?'vaultChestGlow .45s ease-in-out infinite alternate':undefined}>
           <Box position="absolute" left="10%" right="10%" bottom="8px" h="64%" bg={chestMeta[vaultOpeningKey].bg} border="3px solid" borderColor={chestMeta[vaultOpeningKey].border} borderRadius="8px 8px 14px 14px" boxShadow={vaultPhase==='glow'||vaultPhase==='open'?`0 0 46px ${chestMeta[vaultOpeningKey].glow}, inset 0 0 28px rgba(255,255,255,.18)`:'0 12px 28px rgba(0,0,0,.52)'} overflow="hidden">
             <Box position="absolute" inset={0} bg={vaultPhase==='glow'||vaultPhase==='open'?'radial-gradient(circle at 50% 15%,rgba(255,255,255,.92),transparent 56%)':'transparent'} opacity={vaultPhase==='open'?.98:.62}/>
-            <Text position="absolute" left="50%" top="50%" transform="translate(-50%,-40%)" fontSize={{base:'3xl',md:'4xl'}} filter={vaultPhase==='open'?'drop-shadow(0 0 16px white) brightness(1.45)':undefined}>{chestMeta[vaultOpeningKey].icon}</Text>
           </Box>
           <Box position="absolute" left="8%" right="8%" top="18px" h="43px" bg={chestMeta[vaultOpeningKey].bg} border="3px solid" borderColor={chestMeta[vaultOpeningKey].border} borderRadius="16px 16px 5px 5px" transformOrigin="50% 100%" animation={vaultPhase==='open'?'vaultChestLidOpen .62s cubic-bezier(.18,.78,.25,1) forwards':undefined} boxShadow={vaultPhase==='glow'||vaultPhase==='open'?`0 0 34px ${chestMeta[vaultOpeningKey].glow}`:'0 6px 14px rgba(0,0,0,.42)'}/>
           {(vaultPhase==='glow'||vaultPhase==='open')&&<Box position="absolute" left="20%" right="20%" top="45px" h="22px" bg="linear-gradient(180deg,rgba(255,255,255,.95),rgba(250,204,21,.22),transparent)" filter="blur(2px)" animation="vaultLightBurst .45s ease-in-out infinite alternate"/>}
@@ -769,9 +847,9 @@ export default function InfiniteElevator(){
     if(kind==='reveal'){
       const type=room.payload?.type as string|undefined;
       const amount=Number(room.payload?.amount||0);
-      const icon=type==='health'?'♨️':type==='stairs'?'🪜':type==='luck'?'🍀':type==='wallet'?'👛':'🎁';
+      const icon=type==='health'?'♨️':type==='stairs'?'🪜':type==='luck'?'🍀':type==='wallet'?'👛':'';
       const buttonLabel=type==='health'?'湯に浸かる':type==='stairs'?'階段を登る':type==='luck'?'祝福を受け取る':type==='wallet'?'財布を拾う':'宝箱を開ける';
-      return <Stack spacing={2}><Center><Box w="86px" h="86px" rounded="full" display="grid" placeItems="center" bg="blackAlpha.500" border="1px solid" borderColor={eventAnimating?'yellow.300':'whiteAlpha.300'} boxShadow={eventAnimating?'0 0 34px rgba(250,204,21,.55), inset 0 0 22px rgba(255,255,255,.10)':'inset 0 0 16px rgba(0,0,0,.6)'} animation={eventAnimating?'revealPulse .42s ease-in-out infinite alternate':undefined}><Text fontSize="4xl">{icon}</Text></Box></Center><Button w="100%" colorScheme={type==='health'?'cyan':type==='luck'?'green':type==='stairs'?'blue':'yellow'} color={type==='wallet'||type==='treasure'?'black':undefined} isLoading={eventAnimating} loadingText="結果を確認しています…" isDisabled={eventAnimating} onClick={()=>{if(eventAnimating)return;setEventAnimating(true);playSfx(type==='stairs'?'move2':type==='health'?'success':type==='luck'?'item':'roulette',soundOn);show({...room,result:type==='treasure'?'宝箱の鍵がゆっくり外れていく…':'効果が現れ始めた…'});fastTimeout(()=>{if(type==='luck'){patch(current=>({luck:current.luck+amount}));playSfx('success',soundOn);show({...room,kind:undefined,result:`運気 +${amount}`,resultType:'success'});}else if(type==='health'){patch(current=>({turnsLeft:current.turnsLeft+amount}));playSfx('success',soundOn);show({...room,kind:undefined,result:`残り回数 +${amount}`,resultType:'success'});}else if(type==='stairs'){setEventAnimating(false);show({...room,result:`+${amount}階！ 階段を移動中…`,resultType:'gold'});fastTimeout(()=>moveByEvent(amount,room.title),260);return;}else if(type==='wallet'){patch(current=>({money:current.money+amount}));playSfx('coin',soundOn);show({...room,kind:undefined,result:`財布の中に ${amount}円！`,resultType:'gold'});}else if(type==='treasure'){if(Math.random()<.5){const money=ri(500,1000);patch(current=>({money:current.money+money}));playSfx('coin',soundOn);show({...room,kind:undefined,result:`宝箱から ${money}円！`,resultType:'gold'});}else{const gem=pick<ItemId>(['ruby','emerald','diamond']);addItem(makeItem(gem,1));playSfx('gem',soundOn);show({...room,kind:undefined,result:`宝箱から ${gem==='ruby'?'ルビー':gem==='emerald'?'エメラルド':'ダイヤモンド'} ×1！`,resultType:'gold'});}}setEventAnimating(false);},1100);}}>{buttonLabel}</Button><Text fontSize="9px" color="gray.400" textAlign="center">結果は演出後に確定します</Text></Stack>;
+      return <Stack spacing={2}><Center><Box w="86px" h="86px" rounded="full" display="grid" placeItems="center" bg="blackAlpha.500" border="1px solid" borderColor={eventAnimating?'yellow.300':'whiteAlpha.300'} boxShadow={eventAnimating?'0 0 34px rgba(250,204,21,.55), inset 0 0 22px rgba(255,255,255,.10)':'inset 0 0 16px rgba(0,0,0,.6)'} animation={eventAnimating?'revealPulse .42s ease-in-out infinite alternate':undefined}>{icon&&<Text fontSize="4xl">{icon}</Text>}</Box></Center><Button w="100%" colorScheme={type==='health'?'cyan':type==='luck'?'green':type==='stairs'?'blue':'yellow'} color={type==='wallet'||type==='treasure'?'black':undefined} isLoading={eventAnimating} loadingText="結果を確認しています…" isDisabled={eventAnimating} onClick={()=>{if(eventAnimating)return;setEventAnimating(true);playSfx(type==='stairs'?'move2':type==='health'?'success':type==='luck'?'item':'roulette',soundOn);if(type!=='treasure')show({...room,result:'効果が現れ始めた…'});fastTimeout(()=>{if(type==='luck'){patch(current=>({luck:current.luck+amount}));playSfx('success',soundOn);show({...room,kind:undefined,result:`運気 +${amount}`,resultType:'success'});}else if(type==='health'){patch(current=>({turnsLeft:current.turnsLeft+amount}));playSfx('success',soundOn);show({...room,kind:undefined,result:`残り回数 +${amount}`,resultType:'success'});}else if(type==='stairs'){setEventAnimating(false);show({...room,result:`+${amount}階！ 階段を移動中…`,resultType:'gold'});fastTimeout(()=>moveByEvent(amount,room.title),260);return;}else if(type==='wallet'){patch(current=>({money:current.money+amount}));playSfx('coin',soundOn);show({...room,kind:undefined,result:`財布の中に ${amount}円！`,resultType:'gold'});}else if(type==='treasure'){if(Math.random()<.5){const money=ri(500,1000);patch(current=>({money:current.money+money}));playSfx('coin',soundOn);show({...room,kind:undefined,result:`宝箱から ${money}円！`,resultType:'gold'});}else{const gem=pick<ItemId>(['ruby','emerald','diamond']);addItem(makeItem(gem,1));playSfx('gem',soundOn);show({...room,kind:undefined,result:`宝箱から ${gem==='ruby'?'ルビー':gem==='emerald'?'エメラルド':'ダイヤモンド'} ×1！`,resultType:'gold'});}}setEventAnimating(false);},1100);}}>{buttonLabel}</Button><Text fontSize="9px" color="gray.400" textAlign="center">結果は演出後に確定します</Text></Stack>;
     }
     if(kind==='vending'){
       const sale=!!room.payload?.sale;const luckPrice=sale?50:100;const turnPrice=sale?200:400;
@@ -1040,6 +1118,7 @@ export default function InfiniteElevator(){
         <Box position="absolute" top={{base:4,lg:5}} left={{base:4,lg:5}} zIndex={2} px={3} py={2} bg="rgba(5,6,7,.70)" borderTop="1px solid rgba(224,222,214,.30)" borderBottom="1px solid rgba(224,222,214,.15)" backdropFilter="blur(6px)">
           <HStack spacing={2}><Icon as={FaTrophy} color="#b7aa89"/><Text fontSize="10px" letterSpacing=".12em" color="rgba(235,232,222,.72)" fontWeight="bold">自己最高記録</Text></HStack>
           <Text mt={1} fontFamily="heading" fontSize="2xl" color="#eee9df" fontWeight="700" textShadow="0 0 12px rgba(255,255,255,.16)">{s.highScore} 階</Text>
+          <HStack mt={1} spacing={1}><Icon as={FaTrophy} color="yellow.300" boxSize={3}/><Text fontSize="11px" color="yellow.100" fontWeight="900">今週のトロフィー {trophyProfile.trophies}</Text></HStack>
           <Text mt={1.5} maxW={{base:'220px',md:'280px'}} overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" fontSize={{base:'10px',md:'11px'}} color="rgba(235,232,222,.78)">プレイヤー：{nickname||'名無しの登山者'}</Text>
           <Flex mt={2} gap={2} wrap="wrap" align="stretch">
             <Button h={{base:'32px',md:'34px'}} minW="0" px={{base:2.5,md:3}} size="sm" bg="rgba(20,22,26,.94)" color="#f2eee5" border="1px solid rgba(218,216,208,.38)" borderRadius="3px" fontSize={{base:'10px',md:'11px'}} fontWeight="800" boxShadow="0 5px 14px rgba(0,0,0,.28)" _hover={{bg:'rgba(58,22,27,.96)',borderColor:'rgba(190,79,87,.82)',color:'white'}} onClick={()=>{setNameDraft(nickname||'名無しの登山者');nameEdit.onOpen();}}>名前を変更</Button>
@@ -1066,7 +1145,7 @@ export default function InfiniteElevator(){
               <Box mt={2}><Text mb={1} fontSize="8px" color="yellow.100">次回以降の部屋</Text><HStack spacing={1}><Select size="sm" h="30px" value={masterQueueDraft} onChange={e=>setMasterQueueDraft(e.target.value)} bg="#17130a" borderColor="rgba(250,204,21,.22)"><option value="">部屋を選択</option>{stageCatalog.filter(x=>x.title!=='エレベーターホール').map(stage=><option key={stage.title} value={stage.title}>{stage.title}</option>)}</Select><Button size="xs" h="30px" colorScheme="yellow" color="black" isDisabled={!masterQueueDraft} onClick={()=>{if(masterQueueDraft){setMasterNextStages(v=>[...v,masterQueueDraft]);setMasterQueueDraft('');}}}>追加</Button></HStack>{masterNextStages.length>0&&<HStack mt={1} spacing={1} overflowX="auto">{masterNextStages.map((title,i)=><Badge key={`${title}-${i}`} flexShrink={0} colorScheme="yellow">{i+1}. {title}</Badge>)}<Button size="xs" h="22px" flexShrink={0} variant="ghost" colorScheme="red" onClick={()=>setMasterNextStages([])}>全解除</Button></HStack>}</Box>
               <Text mt={2} fontSize="8px" color="yellow.200">開発者モードのプレイは最高記録・履歴・ランキングへ保存されません。ステージ図鑑では任意ステージから直接開始できます。</Text>
             </Box>}
-            <SimpleGrid mt={2.5} columns={2} spacing={{base:1.5,lg:2}}>{[[FaRankingStar,'ランキング',openRanking],[FaBolt,'オンライン対戦',()=>{setBattleError('');setBattleCodeInput('');battleLobby.onOpen();}],[FaCircleQuestion,'ルール説明',rules.onOpen],[FaBookOpen,'ステージ図鑑',guide.onOpen],[FaGem,'アイテム図鑑',itemGuide.onOpen]].map(([ic,label,fn]:any)=><Button key={label} size="sm" minH="42px" bg="rgba(7,8,10,.78)" color="rgba(237,234,225,.84)" border="1px solid rgba(180,184,186,.24)" borderRadius="2px" leftIcon={<Icon as={ic}/>} fontFamily="heading" fontSize="11px" letterSpacing=".08em" _hover={{bg:'rgba(54,18,22,.88)',borderColor:'rgba(174,66,74,.75)',color:'white'}} onClick={fn}>{label}</Button>)}</SimpleGrid>
+            <SimpleGrid mt={2.5} columns={2} spacing={{base:1.5,lg:2}}>{[[FaTrophy,'ランク戦',startRankedRun],[FaRankingStar,'トロフィーランキング',openTrophyRanking],[FaRankingStar,'階数ランキング',openRanking],[FaBolt,'オンライン対戦',()=>{setBattleError('');setBattleCodeInput('');battleLobby.onOpen();}],[FaCircleQuestion,'ルール説明',rules.onOpen],[FaBookOpen,'ステージ図鑑',guide.onOpen],[FaGem,'アイテム図鑑',itemGuide.onOpen]].map(([ic,label,fn]:any)=><Button key={label} size="sm" minH="42px" bg="rgba(7,8,10,.78)" color="rgba(237,234,225,.84)" border="1px solid rgba(180,184,186,.24)" borderRadius="2px" leftIcon={<Icon as={ic}/>} fontFamily="heading" fontSize="11px" letterSpacing=".08em" _hover={{bg:'rgba(54,18,22,.88)',borderColor:'rgba(174,66,74,.75)',color:'white'}} onClick={fn}>{label}</Button>)}</SimpleGrid>
           </Box>
         </Flex>
       </Flex>}
@@ -1177,7 +1256,12 @@ export default function InfiniteElevator(){
                     {overlay.show&&<Center position="absolute" inset={0} bg={overlay.tier===4?'linear-gradient(180deg,rgba(69,26,3,.96),rgba(0,0,0,.97))':'rgba(0,0,0,.94)'} zIndex={30} flexDir="column" overflow="hidden"><Box position="absolute" inset="-20%" bg={overlay.tier===4?'radial-gradient(circle,rgba(250,204,21,.25),transparent 50%)':overlay.tier===3?'radial-gradient(circle,rgba(168,85,247,.22),transparent 50%)':overlay.tier===2?'radial-gradient(circle,rgba(16,185,129,.16),transparent 50%)':'radial-gradient(circle,rgba(34,211,238,.12),transparent 50%)'} animation="elevatorAura .55s ease-in-out infinite alternate"/><Text zIndex={1} fontFamily="mono" fontSize={overlay.locked?'7xl':'6xl'} fontWeight="black" color={tierMeta[Math.min(4,overlay.tier-1)].color} textShadow="0 0 24px currentColor" transform={overlay.locked?'scale(1.08)':'scale(.92)'} transition="all .18s ease">+{overlay.steps}</Text><Text zIndex={1} fontSize="11px" color={overlay.locked?'white':'gray.300'} fontWeight={overlay.locked?'900':'600'} mt={2}>{overlay.detail}</Text><HStack zIndex={1} mt={3} spacing={1}>{Array.from({length:8}).map((_,i)=><Box key={i} w="18px" h="4px" rounded="full" bg={i<overlay.tier*2?(overlay.tier===4?'yellow.300':overlay.tier===3?'purple.300':overlay.tier===2?'green.300':'cyan.300'):'whiteAlpha.200'} boxShadow={i<overlay.tier*2?'0 0 8px currentColor':undefined}/>)}</HStack></Center>}
         </Flex>
 
-        {!roomIntro&&<Box position="absolute" left={{base:2,md:'12%'}} right={{base:2,md:'12%'}} bottom={{base:2,md:3}} bg="rgba(3,4,6,.72)" backdropFilter="blur(9px)" p={{base:1.5,lg:2}} border="1px solid" borderColor="rgba(205,207,205,.22)" borderRadius="10px" zIndex={22}><Center><Button w="100%" maxW={{base:'100%',lg:'720px'}} h={{base:'50px',lg:'58px'}} bg={finalMode?"linear-gradient(180deg,#5b171e,#1e090c)":"linear-gradient(180deg,#1c1f23,#090a0c)"} color="#f1eee6" fontFamily="heading" letterSpacing=".10em" fontSize="md" fontWeight="800" textShadow="0 2px 5px #000" border="1px solid" borderColor={finalMode?"#a44850":"rgba(226,224,216,.42)"} borderRadius="2px" boxShadow={finalMode?"0 0 20px rgba(130,28,36,.30),inset 0 1px rgba(255,255,255,.05)":"0 8px 20px rgba(0,0,0,.50),inset 0 1px rgba(255,255,255,.05)"} _hover={{bg:finalMode?'#6d1c24':'#272a2e',borderColor:finalMode?'#cf666e':'#d9d5ca',color:'white'}} _active={{transform:'translateY(1px)',bg:'#0a0b0d'}} _disabled={{opacity:.48,color:'whiteAlpha.700',cursor:'not-allowed'}} leftIcon={finalMode||battleRunFinished?undefined:<FaArrowUp/>} isDisabled={disabled||eventAnimating||floorTransition.show||overlay.show||battleRunFinished} onClick={()=>{if(battleRunFinished)return;if(finalMode)end();else press();}}>{battleRunFinished?'ほかのプレイヤーの終了を待っています…':finalMode?'ゲームを終了する':'ボタンを押す'}</Button></Center></Box>}
+        {rankedActive&&<Box position="absolute" right={{base:2,md:3}} top={{base:'148px',md:'86px'}} zIndex={24} w={{base:'150px',md:'210px'}} p={2} bg="rgba(10,8,4,.86)" border="1px solid rgba(250,204,21,.38)" borderRadius="8px" backdropFilter="blur(8px)">
+          <HStack justify="space-between" mb={1.5}><HStack spacing={1}><Icon as={FaTrophy} color="yellow.300" boxSize={3}/><Text fontSize="9px" color="yellow.100" fontWeight="900">RANK MATCH</Text></HStack><Badge colorScheme="yellow" fontSize="7px">4人戦</Badge></HStack>
+          <Stack spacing={1}>{[{name:nickname||'あなた',floor:s.floor,turns:s.turnsLeft,isMe:true},...rankedCpus.map(c=>({name:c.name,floor:c.floor,turns:c.turns,isMe:false}))].sort((a,b)=>b.floor-a.floor).map((p,i)=><Flex key={`${p.name}-${i}`} align="center" gap={1}><Text w="16px" fontSize="8px" color={i===0?'yellow.200':'gray.400'}>{i+1}</Text><Text flex="1" minW={0} noOfLines={1} fontSize="8px" color={p.isMe?'cyan.100':'gray.200'} fontWeight={p.isMe?'900':'700'}>{p.name}</Text><Text fontSize="8px" color="#eee9df" fontWeight="900">{p.floor}F</Text><Text w="28px" textAlign="right" fontSize="7px" color="gray.500">残{p.turns}</Text></Flex>)}</Stack>
+          {rankedPlayerFinished&&<Text mt={1.5} fontSize="7px" color="orange.200">残りCPUは3秒ごとに1部屋進みます</Text>}
+        </Box>}
+        {!roomIntro&&<Box position="absolute" left={{base:2,md:'12%'}} right={{base:2,md:'12%'}} bottom={{base:2,md:3}} bg="rgba(3,4,6,.72)" backdropFilter="blur(9px)" p={{base:1.5,lg:2}} border="1px solid" borderColor="rgba(205,207,205,.22)" borderRadius="10px" zIndex={22}><Center><Button w="100%" maxW={{base:'100%',lg:'720px'}} h={{base:'50px',lg:'58px'}} bg={finalMode?"linear-gradient(180deg,#5b171e,#1e090c)":"linear-gradient(180deg,#1c1f23,#090a0c)"} color="#f1eee6" fontFamily="heading" letterSpacing=".10em" fontSize="md" fontWeight="800" textShadow="0 2px 5px #000" border="1px solid" borderColor={finalMode?"#a44850":"rgba(226,224,216,.42)"} borderRadius="2px" boxShadow={finalMode?"0 0 20px rgba(130,28,36,.30),inset 0 1px rgba(255,255,255,.05)":"0 8px 20px rgba(0,0,0,.50),inset 0 1px rgba(255,255,255,.05)"} _hover={{bg:finalMode?'#6d1c24':'#272a2e',borderColor:finalMode?'#cf666e':'#d9d5ca',color:'white'}} _active={{transform:'translateY(1px)',bg:'#0a0b0d'}} _disabled={{opacity:.48,color:'whiteAlpha.700',cursor:'not-allowed'}} leftIcon={finalMode||battleRunFinished||rankedPlayerFinished?undefined:<FaArrowUp/>} isDisabled={disabled||eventAnimating||floorTransition.show||overlay.show||battleRunFinished||rankedPlayerFinished} onClick={()=>{if(battleRunFinished||rankedPlayerFinished)return;if(finalMode)end();else press();}}>{battleRunFinished?'ほかのプレイヤーの終了を待っています…':rankedPlayerFinished?'CPUの残り行動を待っています…':finalMode?(rankedActive?'ランク戦を終了する':'ゲームを終了する'):'ボタンを押す'}</Button></Center></Box>}
       </Flex>
 
       <Modal isOpen={battleLobby.isOpen} onClose={()=>{if(!battleCode){battleLobby.onClose();setBattleError('');}}} closeOnOverlayClick={!battleCode} isCentered>
@@ -1213,6 +1297,14 @@ export default function InfiniteElevator(){
         <HelpSection title="1. ゲームの目的">
           <Bullet>「ボタンを押す」を使って、限られた回数の中でできるだけ高い階まで登るゲームです。</Bullet>
           <Bullet>ランキングの主な記録は <b>最終到達階数</b> です。高階層を目指しましょう。</Bullet>
+        </HelpSection>
+        <HelpSection title="ランク戦">
+          <Bullet>プレイヤー1人とCPU3人で4人対戦します。最終到達階数が高い順に順位を決めます。</Bullet>
+          <Bullet>順位報酬は <b>1位 +3 / 2位 +1 / 3位 -1 / 4位 -2 トロフィー</b> です。</Bullet>
+          <Bullet>プレイヤーがボタンを押すたび、残り回数があるCPUも同じタイミングで1部屋進みます。</Bullet>
+          <Bullet>プレイヤー終了後もCPUに残り回数がある場合、CPUは3秒ごとに1部屋進み、全員終了後に順位を確定します。</Bullet>
+          <Bullet>CPUはアイテムを獲得・使用します。行動方針は5種類から内部でランダム選択され、内容はプレイヤーには表示されません。</Bullet>
+          <Bullet>週間トロフィーは毎週月曜0:00(JST)にリセットされ、前週最終値は総合トロフィーランキングの自己ベスト候補になります。</Bullet>
         </HelpSection>
         <HelpSection title="2. 基本の流れ">
           <Bullet>1回ボタンを押すごとに、ランダムな階数だけ上へ進みます。</Bullet>
@@ -1262,6 +1354,21 @@ export default function InfiniteElevator(){
           <Bullet>宝石を多く抱えた時は、お店チケットで売却タイミングを作ると整理しやすくなります。</Bullet>
         </HelpSection>
       </InfoModal>
+      <Modal isOpen={trophyRank.isOpen} onClose={trophyRank.onClose} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#17150c,#07080a)" maxW={{base:'360px',md:'620px'}} border="1px solid rgba(250,204,21,.30)" borderRadius="8px"><ModalHeader fontFamily="heading" color="#fff0b3"><HStack><Icon as={FaTrophy} color="yellow.300"/><Text>トロフィーランキング</Text></HStack></ModalHeader><ModalBody maxH="72vh" overflowY="auto">
+        <Tabs index={trophyRankingMode==='weekly'?0:1} onChange={i=>void loadTrophyRankingMode(i===0?'weekly':'alltime')} variant="soft-rounded" colorScheme="yellow" size="sm">
+          <TabList mb={3}><Tab flex="1">週間</Tab><Tab flex="1">総合</Tab></TabList>
+          <Box mb={3} p={3} bg="blackAlpha.400" border="1px solid rgba(250,204,21,.18)" borderRadius="8px"><Text fontSize="10px" color="yellow.100" fontWeight="900">{trophyRankingMode==='weekly'?`今週：${getJstWeekLabel()}`:'終了した各週の自己最高トロフィー'}</Text><Text mt={1} fontSize="9px" color="gray.400">週間トロフィーは毎週月曜 0:00 (JST) に0へリセット。リセット前の最終値が総合ランキング候補として保存されます。</Text></Box>
+          <Flex mb={3} p={2.5} align="center" justify="space-between" bg="rgba(250,204,21,.07)" borderRadius="6px"><Box><Text fontSize="8px" color="gray.500">現在のトロフィー</Text><Text fontFamily="heading" fontSize="2xl" color="yellow.200" fontWeight="900">{trophyProfile.trophies}</Text></Box><Box textAlign="right"><Text fontSize="8px" color="gray.500">あなたの順位</Text><Text fontSize="lg" color="#eee9df" fontWeight="900">{myTrophyRanking?.rank?`${myTrophyRanking.rank}位`:'未登録'}</Text></Box></Flex>
+          {trophyRankingLoading?<VStack py={8}><Progress w="100%" size="xs" isIndeterminate colorScheme="yellow"/><Text fontSize="10px" color="gray.400">読み込み中…</Text></VStack>:trophyRankingRows.length?<Stack spacing={0}>{trophyRankingRows.map((row,i)=><Flex key={row.id||i} py={2} borderBottom="1px solid rgba(255,255,255,.08)" align="center"><Text w="42px" color={i<3?'yellow.200':'gray.500'} fontWeight="900">#{i+1}</Text><Text flex="1" minW={0} noOfLines={1} color="#eee9df">{row.name}</Text><HStack spacing={1}><Icon as={FaTrophy} color="yellow.300" boxSize={3}/><Text color="yellow.100" fontWeight="900">{row.trophies}</Text></HStack></Flex>)}</Stack>:<Text py={8} textAlign="center" color="gray.500">まだ登録がありません</Text>}
+        </Tabs>
+      </ModalBody><ModalFooter><Button w="100%" onClick={trophyRank.onClose}>閉じる</Button></ModalFooter></ModalContent></Modal>
+
+      <Modal isOpen={rankedResult.isOpen} onClose={()=>{}} closeOnOverlayClick={false} isCentered><ModalOverlay bg="blackAlpha.850" backdropFilter="blur(7px)"/><ModalContent bg="linear-gradient(180deg,#1d1809,#07080a)" maxW={{base:'360px',md:'470px'}} border="1px solid rgba(250,204,21,.38)" borderRadius="8px"><ModalHeader textAlign="center" fontFamily="heading" color="yellow.100">ランク戦結果</ModalHeader><ModalBody>
+        {rankedMatchResult&&<><Center><VStack spacing={1}><Icon as={FaTrophy} boxSize={9} color={rankedMatchResult.place===1?'yellow.300':'gray.300'}/><Text fontFamily="heading" fontSize="4xl" color="#fff2bd" fontWeight="900">{rankedMatchResult.place}位</Text><Badge colorScheme={rankedMatchResult.delta>0?'green':'red'} fontSize="sm">トロフィー {rankedMatchResult.delta>0?'+':''}{rankedMatchResult.delta}</Badge></VStack></Center>
+        <Stack mt={4} spacing={1}>{rankedMatchResult.order.map((row,i)=><Flex key={row.id} p={2.5} bg={row.isPlayer?'rgba(34,211,238,.08)':'rgba(255,255,255,.035)'} border="1px solid" borderColor={row.isPlayer?'rgba(103,232,249,.28)':'rgba(255,255,255,.08)'} borderRadius="6px" align="center"><Text w="34px" color={i<3?'yellow.200':'gray.500'} fontWeight="900">{i+1}位</Text><Text flex="1" color={row.isPlayer?'cyan.100':'#eee9df'} fontWeight={row.isPlayer?'900':'700'}>{row.name}{row.isPlayer?'（あなた）':''}</Text><Text color="#f0d9aa" fontWeight="900">{row.floor.toLocaleString()}階</Text></Flex>)}</Stack>
+        <Flex mt={4} p={3} justify="space-between" bg="blackAlpha.400" borderRadius="8px"><Text fontSize="11px" color="gray.400">今週のトロフィー</Text><Text fontFamily="mono" color="yellow.200" fontWeight="900">{rankedMatchResult.before} → {rankedMatchResult.after}</Text></Flex></>}
+      </ModalBody><ModalFooter><Button w="100%" colorScheme="yellow" color="black" onClick={()=>{rankedResult.onClose();setRankedActive(false);setRankedPlayerFinished(false);setMenu(true);}}>メインメニューへ</Button></ModalFooter></ModalContent></Modal>
+
       <Modal isOpen={rank.isOpen} onClose={rank.onClose} isCentered><ModalOverlay bg="blackAlpha.800" backdropFilter="blur(5px)"/><ModalContent bg="linear-gradient(180deg,#15181c,#07080a)" maxW={{base:'360px',md:'640px'}} border="1px solid rgba(218,216,208,.28)" borderRadius="8px" boxShadow="0 24px 80px rgba(0,0,0,.72)"><ModalHeader fontFamily="heading" letterSpacing=".08em" color="#eee9df" borderBottom="1px solid rgba(180,184,186,.16)">全国ランキング</ModalHeader><ModalBody maxH="72vh" overflowY="auto">
         <Tabs index={rankingMode==='monthly'?0:1} onChange={(i)=>{const mode:RankingScope=i===0?'monthly':'alltime';void loadRankingMode(mode);}} variant="soft-rounded" colorScheme="red" size="sm">
           <TabList mb={3}><Tab flex="1">月間</Tab><Tab flex="1">総合</Tab></TabList>
