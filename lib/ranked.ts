@@ -1,4 +1,4 @@
-// ランク戦のCPU行動・トロフィー保存・週間/総合トロフィーランキングを担当する。
+// コンピュータ戦のCPU行動・トロフィー保存・週間/総合トロフィーランキングを担当する。
 // CPUのstrategyは画面へ公開せず、各CPUは選ばれた方針に沿って報酬/アイテム利用を重み付けする。
 import { signInAnonymously } from 'firebase/auth';
 import {
@@ -188,7 +188,7 @@ export async function loadMyTrophyRanking(scope:TrophyRankingScope,playerId:stri
 }
 
 export function createRankCpuPlayers():RankCpu[]{
-  const names=[...CPU_NAMES].sort(()=>Math.random()-.5).slice(0,3);
+  const names=[...CPU_NAMES].sort(()=>Math.random()-.5).slice(0,4);
   return names.map((name,index)=>({
     id:`cpu${index+1}`, name, strategy:pick(STRATEGIES), floor:1, turns:10, luck:0, money:1000,
     items:[], finished:false, lastAction:'待機中', roomTitle:'エレベーターホール', roomImage:'stages/stage-01.webp',
@@ -260,11 +260,11 @@ export function advanceRankCpu(input:RankCpu):RankCpu{
 }
 
 export function rankMatchOrder(player:{name:string;floor:number;luck:number;money:number},cpus:RankCpu[]){
-  // 同階の場合は運気→所持金の順でタイブレークし、必ず1〜4位を確定する。
+  // 同階の場合は運気→所持金の順でタイブレークし、5人対戦の順位を確定する。
   return [
     {id:'player',name:player.name,floor:player.floor,luck:player.luck,money:player.money,isPlayer:true},
     ...cpus.map(c=>({id:c.id,name:c.name,floor:c.floor,luck:c.luck,money:c.money,isPlayer:false})),
   ].sort((a,b)=>b.floor-a.floor||b.luck-a.luck||b.money-a.money||a.id.localeCompare(b.id));
 }
 
-export function trophyDeltaForPlace(place:number){ return place===1?3:place===2?1:place===3?-1:-2; }
+export function trophyDeltaForPlace(place:number){ return place===1?3:place===2?1:place===3?0:place===4?-1:-2; }

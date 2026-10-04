@@ -86,7 +86,7 @@ export default function InfiniteElevator(){
   const [rareArrival,setRareArrival]=useState(0);
   const [doorChoices,setDoorChoices]=useState<DoorChoice[]>([]);
   const [gameSpeed,setGameSpeed]=useState<1|2|3>(1);
-  // 開発者プレイ専用。AUTOは会話送りと通常のエレベーター操作だけを自動化し、選択が必要なイベントでは待機する。
+  // 開発者プレイ専用。AUTOは会話送り・通常のエレベーターボタン・選択不要の単一アクションを自動化する。
   const [devAutoPlay,setDevAutoPlay]=useState(false);
   const fastTimeout=(fn:()=>void,ms:number)=>window.setTimeout(fn,ms/gameSpeed);
   const fastInterval=(fn:()=>void,ms:number)=>window.setInterval(fn,ms/gameSpeed);
@@ -105,7 +105,7 @@ export default function InfiniteElevator(){
   const [spectateRole,setSpectateRole]=useState<BattleRole|null>(null);
   const battleStartedRef=useRef(false);
   const battleUnsubRef=useRef<null|(()=>void)>(null);
-  // コンピュータ戦はローカルCPU 3人との4人戦。AIのstrategyは内部状態だけに保持し画面には公開しない。
+  // コンピュータ戦はローカルCPU 4人との5人戦。AIのstrategyは内部状態だけに保持し画面には公開しない。
   const [rankedActive,setRankedActive]=useState(false);
   const [rankedCpus,setRankedCpus]=useState<RankCpu[]>([]);
   // CPU状況は常時ミニ表示し、選択したCPUだけ背景付き詳細を表示する。ゲーム本体UIとの重なりを抑える。
@@ -231,9 +231,9 @@ export default function InfiniteElevator(){
   useEffect(()=>{
     if(!battleActive||battleRunFinished||!battleCode||!battleRole)return;
     const phase:'ready'|'dialogue'|'moving'|'event' = roomIntro?'dialogue':(moving||floorTransition.show||overlay.show)?'moving':eventAnimating?'event':'ready';
-    const timer=window.setTimeout(()=>{void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:s.turnsLeft,finished:false,roomTitle:room.title,phase});},320);
+    const timer=window.setTimeout(()=>{void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:s.turnsLeft,finished:false,roomTitle:room.title,phase,luck:s.luck,money:s.money,items:s.items.map(it=>it.name)});},320);
     return ()=>window.clearTimeout(timer);
-  },[battleActive,battleRunFinished,battleCode,battleRole,s.floor,s.turnsLeft,room.title,roomIntro,moving,eventAnimating,floorTransition.show,overlay.show]);
+  },[battleActive,battleRunFinished,battleCode,battleRole,s.floor,s.turnsLeft,s.luck,s.money,s.items,room.title,roomIntro,moving,eventAnimating,floorTransition.show,overlay.show]);
   useEffect(()=>{
     if(!battleActive||!battleRunFinished||!battleRoom||!battleRole||battleResult.isOpen)return;
     const players=getBattlePlayers(battleRoom);
@@ -252,14 +252,14 @@ export default function InfiniteElevator(){
     const resend=()=>{
       if(sending)return;
       sending=true;
-      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true,roomTitle:room.title,phase:'finished'})
+      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true,roomTitle:room.title,phase:'finished',luck:s.luck,money:s.money,items:s.items.map(it=>it.name)})
         .catch(()=>{})
         .finally(()=>{sending=false;});
     };
     resend();
     const timer=window.setInterval(resend,2500);
     return ()=>window.clearInterval(timer);
-  },[battleActive,battleRunFinished,battleCode,battleRole,battleRoom,s.floor,room.title]);
+  },[battleActive,battleRunFinished,battleCode,battleRole,battleRoom,s.floor,s.luck,s.money,s.items,room.title]);
 
   useEffect(()=>{
     if(!battleRunFinished||!battleRoom||!battleRole)return;
@@ -285,7 +285,7 @@ export default function InfiniteElevator(){
     const afterProfile=applyTrophyDelta(delta);
     setTrophyProfile(afterProfile);
     setRankedMatchResult({place,delta,before:beforeProfile.trophies,after:afterProfile.trophies,order});
-    playSfx(place===1?'jackpot':place===2?'success':'gameover',soundOn);
+    playSfx(place===1?'jackpot':place<=3?'success':'gameover',soundOn);
     rankedResult.onOpen();
 
     const id=playerId||getOrCreatePlayerId();
@@ -425,7 +425,7 @@ export default function InfiniteElevator(){
     if(battleActive&&battleCode&&battleRole){
       // 最終操作確定後に完了を送信。結果画面は両者の完了を受信してから開く。
       setBattleRunFinished(true);
-      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true,roomTitle:room.title,phase:'finished'}).catch(()=>{});
+      void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:0,finished:true,roomTitle:room.title,phase:'finished',luck:s.luck,money:s.money,items:s.items.map(it=>it.name)}).catch(()=>{});
       return;
     }
     setGameover(true);
@@ -1091,21 +1091,93 @@ export default function InfiniteElevator(){
   const finalMode=s.turnsLeft<=0 && !moving && !gameover;
   const disabled=finalMode ? (moving||gameover||slotSpinning||bj.playing) : (moving||gameover||slotSpinning||bj.playing||s.inHell);
 
-  // 開発者AUTO: 演出中は待機し、会話は自動で送り、操作不要の部屋だけ次のボタンを押す。
-  // interactive が存在する部屋（ショップ・選択イベント等）は意図しない選択を避けるため自動操作しない。
+  // 開発者AUTO: プレイヤー操作を必要とせず、通常進行・イベント選択・購入・入力系まで自動で処理する。
+  // 複数選択肢は先頭の有効な選択肢を基本にし、資金不足などで実行できない場合はその部屋を切り上げて次へ進む。
   useEffect(()=>{
     if(!masterActive||!devAutoPlay||menu||gameover||battleRunFinished)return;
-    if(moving||eventAnimating||floorTransition.show||overlay.show||slotSpinning||bj.playing)return;
+    if(moving||eventAnimating||floorTransition.show||overlay.show||slotSpinning)return;
     const timer=window.setTimeout(()=>{
+      // アイテム所持上限に達した場合も停止せず、現在の先頭アイテムを自動で入れ替える。
+      if(pendingOverflow){resolveOverflow(0);return;}
       if(roomIntro){setRoomIntro(false);return;}
-      if(interactive||s.inHell)return;
+
+      const root=document.getElementById('room-interactive');
+      const buttons=root ? Array.from(root.querySelectorAll('button')).filter((button):button is HTMLButtonElement=>button instanceof HTMLButtonElement&&!button.disabled) : [];
+      const clickByText=(text:string)=>{const button=buttons.find(v=>(v.textContent||'').includes(text));if(button){button.click();return true;}return false;};
+      const clickAt=(index:number)=>{const button=buttons[index];if(button){button.click();return true;}return false;};
+
+      // 地獄は「5」が出るか残り回数が尽きるまで自動で振り続ける。
+      if(s.inHell){
+        if(hellRolling||eventAnimating)return;
+        if(s.turnsLeft<=0){end();return;}
+        if(!clickByText('サイコロを振る'))clickAt(0);
+        return;
+      }
+
+      if(interactive){
+        const kind=room.kind||'';
+
+        // ショップは購入可能な商品を上から順に購入。買える物がなくなれば自動退出。
+        if(kind==='shop'){
+          const index=shop.findIndex(g=>!g.sold&&g.item.price<=s.money);
+          if(index>=0){clickAt(index);return;}
+          press();return;
+        }
+
+        // 物々交換は回数増加を優先し、できなければ運気→お金交換。それも不可なら次へ。
+        if(kind==='barter'){
+          if(barterCount>=5){press();return;}
+          if(s.money>=600){clickAt(1);return;}
+          if(s.luck>=2){clickAt(0);return;}
+          press();return;
+        }
+
+        // ブラックジャックは開始可能なら自動開始し、初期配布後はSTANDを自動選択する。
+        if(kind==='blackjack'){
+          if(!bj.playing){
+            if(s.money>=bj.bet){clickByText('勝負開始');return;}
+            press();return;
+          }
+          if(bj.p.length<2||bj.d.length<2)return;
+          clickByText('STAND');return;
+        }
+
+        // カジノは現在のベット額で自動プレイ。上限到達または資金不足で退出する。
+        if(kind==='casino'){
+          if(casinoSpinsLeft>0&&s.money>=slotBet){clickByText('スロットを回す');return;}
+          press();return;
+        }
+
+        // ATMは所持金を全額入力して預ける。受取可能な場合はそのまま受け取る。
+        if(kind==='atm'){
+          if(atmDeposit>0){clickAt(0);return;}
+          if(s.money<=0){press();return;}
+          if(!atmInput){setAtmInput(String(s.money));return;}
+          if(clickByText('預ける'))return;
+          press();return;
+        }
+
+        // 価格固定イベントは資金不足なら無限再試行せず次の部屋へ進む。
+        if(kind==='mystery'&&s.money<1000){press();return;}
+        if(kind==='auction'&&s.money<500){press();return;}
+        if(kind==='legendshop'){
+          if(buttons.length>0){clickAt(0);return;}
+          press();return;
+        }
+
+        // その他の選択イベントは、最初の有効なボタンを自動選択する。
+        // 採掘・宝箱・扉・アンケート・ワープ・祭壇などもこの規則で最後まで進行する。
+        if(buttons.length>0){clickAt(0);return;}
+        press();return;
+      }
+
       if(finalMode){end();return;}
       press();
-    },Math.max(120,420/gameSpeed));
+    },Math.max(100,360/gameSpeed));
     return ()=>window.clearTimeout(timer);
-  // press/end は最新stateを参照するため、進行状態が変わるたびに再評価する。
+  // press/end/イベント処理は最新stateを参照するため、進行状態が変わるたびに再評価する。
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[masterActive,devAutoPlay,menu,gameover,battleRunFinished,moving,eventAnimating,floorTransition.show,overlay.show,slotSpinning,bj.playing,roomIntro,interactive,s.inHell,finalMode,gameSpeed,room.title,s.floor,s.turnsLeft]);
+  },[masterActive,devAutoPlay,menu,gameover,battleRunFinished,moving,eventAnimating,floorTransition.show,overlay.show,slotSpinning,roomIntro,interactive,s.inHell,hellRolling,finalMode,gameSpeed,room.title,room.kind,s.floor,s.turnsLeft,s.money,s.luck,pendingOverflow,shop,barterCount,bj.playing,bj.bet,bj.p,bj.d,casinoSpinsLeft,slotBet,atmDeposit,atmInput]);
 
   // 開発者プレイを終了したら、専用機能が通常プレイへ残らないよう初期化する。
   useEffect(()=>{
@@ -1209,7 +1281,7 @@ export default function InfiniteElevator(){
             <HStack spacing={1.5} align="center" justify="flex-start" w="100%">
               <Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={inventoryPanel.onOpen}>アイテム {s.items.length}/3</Button>
               <Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={logPanel.onOpen}>ログ</Button>
-              {masterActive&&<><Badge fontSize="7px" colorScheme={devAutoPlay?'yellow':'gray'}>{devAutoPlay?(interactive||s.inHell?'AUTO 待機':'AUTO 実行中'):'AUTO OFF'}</Badge><Badge fontSize="7px" colorScheme={gameSpeed===3?'red':'gray'}>DEV ×{gameSpeed}</Badge><Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="yellow.400" color="yellow.100" bg="rgba(72,51,8,.58)" _hover={{bg:'rgba(110,76,8,.76)'}} onClick={()=>{setDevAutoPlay(false);setGameSpeed(1);setGameover(false);setMasterActive(false);masterRoomQueueRef.current=[];setMenu(true);}}>タイトルに戻る</Button></>}
+              {masterActive&&<><Badge fontSize="7px" colorScheme={devAutoPlay?'yellow':'gray'}>{devAutoPlay?'AUTO 実行中':'AUTO OFF'}</Badge><Badge fontSize="7px" colorScheme={gameSpeed===3?'red':'gray'}>DEV ×{gameSpeed}</Badge><Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="yellow.400" color="yellow.100" bg="rgba(72,51,8,.58)" _hover={{bg:'rgba(110,76,8,.76)'}} onClick={()=>{setDevAutoPlay(false);setGameSpeed(1);setGameover(false);setMasterActive(false);masterRoomQueueRef.current=[];setMenu(true);}}>タイトルに戻る</Button></>}
               {(s.ringBuff.active||s.mirrorMultiplier>1||s.partySet)&&<HStack spacing={1} flexWrap="wrap">{s.ringBuff.active&&<Badge fontSize="7px" colorScheme="green">指輪+{s.ringBuff.amount} / 残り{s.ringBuff.turns}</Badge>}{s.mirrorMultiplier>1&&<Badge fontSize="7px" colorScheme="cyan">鏡×{s.mirrorMultiplier}</Badge>}{s.partySet&&<Badge fontSize="7px" colorScheme="pink">演出強化</Badge>}</HStack>}
             </HStack>
             <Box w="100%" overflowX="auto" overflowY="hidden" sx={{WebkitOverflowScrolling:'touch'}}>
@@ -1221,28 +1293,34 @@ export default function InfiniteElevator(){
         </Box>
 
         {battleActive&&battleRoom&&battleRole&&(()=>{
-          const opponents=getBattlePlayers(battleRoom).filter(({role})=>role!==battleRole);
-          return <Stack direction={{base:'row',md:'column'}} position="absolute" top={{base:'138px',md:'12px'}} left={{base:'6px',md:'auto'}} right={{base:'6px',md:'12px'}} zIndex={27} spacing={{base:1,md:1.5}} w={{base:'auto',md:'220px'}} align="stretch" pointerEvents="none">
-            {opponents.map(({role,player})=>{
-              const opp=player.progress;
-              const oppStage=stageCatalog.find(stage=>stage.title===(opp.roomTitle||'エレベーターホール'));
-              const oppImage=oppStage?.image?`${process.env.NEXT_PUBLIC_BASE_PATH||''}/${oppStage.image}`:null;
-              const phaseLabel=opp.finished?'終了':opp.phase==='dialogue'?'会話':opp.phase==='moving'?'移動':opp.phase==='event'?'イベント':'操作中';
-              return <Box key={role} position="relative" flex={{base:1,md:'none'}} minW={0} h={{base:'62px',md:'98px'}} overflow="hidden" bg="#050608" bgImage={oppImage?`linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.55)), url("${oppImage}")`:oppStage?.bg} bgSize="cover" bgPosition="center" border="1px solid rgba(235,112,122,.68)" borderRadius="8px" boxShadow="0 8px 22px rgba(0,0,0,.52)">
-                <Box position="absolute" inset={0} bg="linear-gradient(180deg,rgba(0,0,0,.62),transparent 42%,rgba(0,0,0,.78))"/>
-                <HStack position="absolute" top="4px" left="5px" right="5px" justify="space-between" spacing={1}>
-                  <Text fontSize={{base:'6px',md:'8px'}} color="white" fontWeight="900" noOfLines={1}>{player.name}</Text>
-                  <Badge fontSize={{base:'4px',md:'6px'}} colorScheme={opp.finished?'green':'red'}>{opp.finished?'終了':'プレイ中'}</Badge>
-                </HStack>
-                <Center position="absolute" inset={{base:'14px 3px 13px',md:'22px 5px 18px'}} flexDir="column">
-                  <Text fontFamily="mono" fontSize={{base:'15px',md:'24px'}} lineHeight="1" color="yellow.100" fontWeight="900" textShadow="0 2px 7px #000">{opp.floor}F</Text>
-                  <Text mt="2px" fontSize={{base:'5px',md:'7px'}} color="whiteAlpha.800" noOfLines={1}>{opp.roomTitle||'エレベーターホール'}</Text>
-                </Center>
-                <HStack position="absolute" bottom="3px" left="5px" right="5px" justify="space-between"><Text fontSize={{base:'5px',md:'7px'}} color="cyan.100" fontWeight="800">{phaseLabel}</Text><Text fontSize={{base:'5px',md:'7px'}} color="whiteAlpha.800">残り{opp.turns}</Text></HStack>
-              </Box>;
-            })}
-          </Stack>;
+          const players=getBattlePlayers(battleRoom);
+          const opponents=players.filter(({role})=>role!==battleRole);
+          const liveOrder=players.slice().sort((a,b)=>b.player.progress.floor-a.player.progress.floor||((b.player.progress.luck||0)-(a.player.progress.luck||0))||((b.player.progress.money||0)-(a.player.progress.money||0)));
+          return <Box position="absolute" left={{base:2,md:'auto'}} right={{base:2,md:3}} top={{base:'126px',md:'76px'}} zIndex={24} w={{base:'auto',md:'390px'}} p={{base:1,md:1.5}} bg="rgba(6,7,9,.84)" border="1px solid rgba(235,112,122,.32)" borderRadius="8px" backdropFilter="blur(9px)">
+            <HStack justify="space-between" mb={1}><HStack spacing={1}><Icon as={FaRankingStar} color="red.300" boxSize={2.5}/><Text fontSize={{base:'7px',md:'8px'}} color="red.100" fontWeight="900">対戦相手の状況</Text></HStack><Text fontSize="6px" color="gray.400">タップで詳細</Text></HStack>
+            <SimpleGrid columns={Math.max(1,opponents.length)} spacing={1}>{opponents.map(({role,player})=>{const opp=player.progress;return <Button key={role} h="auto" minW={0} px={{base:.75,md:1}} py={{base:1,md:1.25}} display="block" textAlign="left" bg={spectateRole===role?'rgba(92,23,31,.72)':'rgba(0,0,0,.52)'} border="1px solid" borderColor={spectateRole===role?'red.400':'whiteAlpha.160'} borderRadius="6px" _hover={{bg:'rgba(42,42,42,.76)',borderColor:'red.300'}} onClick={()=>setSpectateRole(current=>current===role?null:role)}>
+              <Text noOfLines={1} fontSize={{base:'5px',md:'7px'}} color="white" fontWeight="900">{player.name}</Text>
+              <Text mt={.25} fontFamily="mono" fontSize={{base:'8px',md:'10px'}} color="cyan.100" fontWeight="900">{opp.floor}F</Text>
+              <Text fontSize={{base:'5px',md:'6px'}} color="yellow.100">残 {opp.turns}</Text>
+              <Text fontSize={{base:'5px',md:'6px'}} color="green.100">運 {opp.luck??0}</Text>
+              <Text noOfLines={1} fontSize={{base:'5px',md:'6px'}} color="orange.100">¥{(opp.money??0).toLocaleString()}</Text>
+              <Text fontSize={{base:'5px',md:'6px'}} color="blue.100">道具 {(opp.items||[]).length}</Text>
+            </Button>})}</SimpleGrid>
+            <Box mt={1} pt={1} borderTop="1px solid rgba(255,255,255,.10)"><Flex justify="space-between" align="center" mb={.5}><Text fontSize="6px" color="gray.400" fontWeight="800">現在の階数順位</Text>{battleRunFinished&&<Text fontSize="6px" color="orange.200">観戦中</Text>}</Flex><SimpleGrid columns={Math.max(2,liveOrder.length)} spacing={.5}>{liveOrder.map(({role,player},i)=><Box key={`online-live-rank-${role}`} minW={0} px={.5} py={.5} textAlign="center" bg={role===battleRole?'rgba(34,211,238,.10)':'rgba(255,255,255,.035)'} border="1px solid" borderColor={role===battleRole?'rgba(103,232,249,.28)':'rgba(255,255,255,.07)'} borderRadius="5px"><Text fontSize="5px" color={i<3?'yellow.200':'gray.400'} fontWeight="900">{i+1}位</Text><Text noOfLines={1} fontSize="5px" color={role===battleRole?'cyan.100':'gray.200'}>{role===battleRole?'あなた':player.name}</Text><Text noOfLines={1} fontFamily="mono" fontSize={{base:'6px',md:'7px'}} color="white" fontWeight="900">{player.progress.floor}F</Text></Box>)}</SimpleGrid></Box>
+          </Box>;
         })()}
+
+        {battleActive&&!battleRunFinished&&battleRoom&&battleRole&&spectateRole&&(()=>{const selected=getBattlePlayers(battleRoom).find(x=>x.role===spectateRole&&x.role!==battleRole);if(!selected)return null;const progress=selected.player.progress;const stage=stageCatalog.find(x=>x.title===(progress.roomTitle||'エレベーターホール'));const image=stage?.image?`${process.env.NEXT_PUBLIC_BASE_PATH||''}/${stage.image}`:null;const phaseLabel=progress.finished?'終了':progress.phase==='dialogue'?'会話中':progress.phase==='moving'?'移動中':progress.phase==='event'?'イベント中':'操作中';return <Box position="absolute" right={{base:2,md:3}} top={{base:'244px',md:'218px'}} zIndex={25} w={{base:'210px',md:'260px'}} overflow="hidden" bg="rgba(4,5,7,.94)" border="1px solid rgba(235,112,122,.42)" borderRadius="9px" boxShadow="0 10px 28px rgba(0,0,0,.52)">
+          <Box h={{base:'66px',md:'82px'}} bgImage={image?`linear-gradient(180deg,rgba(0,0,0,.04),rgba(0,0,0,.82)),url(${image})`:stage?.bg} bgSize="cover" bgPosition="center" position="relative">
+            <HStack position="absolute" top={1.5} left={1.5} right={1.5} justify="space-between"><Badge fontSize="6px" colorScheme="red">ONLINE</Badge><IconButton aria-label="詳細を閉じる" size="xs" minW="22px" h="22px" fontSize="10px" variant="solid" bg="blackAlpha.700" color="white" _hover={{bg:'blackAlpha.800'}} icon={<Text>×</Text>} onClick={()=>setSpectateRole(null)}/></HStack>
+            <Box position="absolute" left={2} right={2} bottom={1.5}><Text noOfLines={1} fontSize={{base:'9px',md:'11px'}} color="white" fontWeight="900" textShadow="0 1px 4px #000">{selected.player.name}</Text><Text noOfLines={1} fontSize={{base:'7px',md:'8px'}} color="whiteAlpha.850" textShadow="0 1px 4px #000">{progress.roomTitle||'エレベーターホール'} ・ {phaseLabel}</Text></Box>
+          </Box>
+          <Box p={{base:1.5,md:2}}>
+            <SimpleGrid columns={4} spacing={1}><Text fontSize="8px" color="cyan.100" fontWeight="900">{progress.floor}F</Text><Text fontSize="7px" color="yellow.100">残 {progress.turns}</Text><Text fontSize="7px" color="green.100">運 {progress.luck??0}</Text><Text noOfLines={1} fontSize="7px" color="orange.100">¥{(progress.money??0).toLocaleString()}</Text></SimpleGrid>
+            <Text mt={2} fontSize="6px" color="gray.500">所持アイテム</Text>
+            <Flex mt={1} gap={1} wrap="wrap">{(progress.items||[]).length===0?<Text fontSize="7px" color="gray.400">なし</Text>:(progress.items||[]).map((name,i)=><Badge key={`online-item-${selected.role}-${i}`} fontSize="6px" colorScheme="blue">{name}</Badge>)}</Flex>
+          </Box>
+        </Box>})()}
 
         {battleActive&&battleRunFinished&&battleRoom&&battleRole&&(()=>{
           const players=getBattlePlayers(battleRoom);
@@ -1276,7 +1354,7 @@ export default function InfiniteElevator(){
               <Box w="118px" h="118px" rounded="full" border="3px solid" borderColor={rareArrival===5?'yellow.200':'red.300'} boxShadow={rareArrival===5?'0 0 34px rgba(253,224,71,.85), inset 0 0 28px rgba(253,224,71,.38)':'0 0 30px rgba(248,113,113,.78), inset 0 0 24px rgba(168,85,247,.32)'} animation="rareRing 1.05s ease-out both"/>
             </Center>
             {Array.from({length:rareArrival===5?12:8}).map((_,i)=><Box key={i} position="absolute" left={`${8+((i*83)%84)}%`} top={`${58+((i*17)%28)}%`} w={rareArrival===5?'5px':'4px'} h={rareArrival===5?'5px':'4px'} rounded="full" bg={rareArrival===5?'yellow.200':'red.200'} boxShadow="0 0 10px currentColor" animation={`rareSpark ${.65+(i%4)*.12}s ease-out ${i*.045}s both`}/>) }
-          </Box>}{!roomIntro&&<VStack zIndex={10} w="100%" maxW={{base:'326px',md:'520px',lg:'650px'}} spacing={{base:2.5,lg:3.5}} maxH="100%" overflowY="auto" px={{base:0,lg:4}} py={{base:3,lg:4}} bg="rgba(4,6,8,.44)" backdropFilter="blur(5px)" border="1px solid rgba(218,216,208,.16)" borderRadius="10px" boxShadow="0 14px 34px rgba(0,0,0,.36)"><Badge bg="rgba(0,0,0,.52)" color={room.tier>=4?'#d4b7b7':'#c9c7c0'} border="1px solid rgba(200,202,200,.22)" borderRadius="1px" px={2.5} py={.5} fontFamily="heading" letterSpacing=".12em">{s.inHell?'Tier 6':tier.name}</Badge><Center w={{base:'66px',lg:'82px'}} h={{base:'66px',lg:'82px'}} rounded="full" bg="radial-gradient(circle,rgba(255,255,255,.055),rgba(0,0,0,.55))" border="1px solid" borderColor={roomIdentity.color} boxShadow={`0 0 28px ${roomIdentity.glow}, inset 0 0 18px rgba(255,255,255,.025)`}><Icon as={roomIdentity.icon} boxSize={{base:6,lg:8}} color={roomIdentity.color}/></Center><Text fontFamily="heading" fontSize={{base:'lg',lg:'2xl'}} letterSpacing=".08em" fontWeight="700" color="#f0ede5" textShadow="0 2px 12px #000">{room.title}</Text><Box w="54px" h="1px" bg="linear-gradient(90deg,transparent,#8d3238,transparent)"/><Text fontSize={{base:'xs',lg:'sm'}} color="rgba(230,228,220,.72)" textAlign="center" lineHeight="1.75" px={{base:2,lg:5}}>{room.desc}</Text>{room.result&&<Badge px={3} py={1} maxW="100%" whiteSpace="normal" textAlign="center" lineHeight="1.4" colorScheme={resultColor}>{room.result}</Badge>}{interactive&&<Box w="100%" mt={2}>{interactive}</Box>}</VStack>}
+          </Box>}{!roomIntro&&<VStack zIndex={10} w="100%" maxW={{base:'326px',md:'520px',lg:'650px'}} spacing={{base:2.5,lg:3.5}} maxH="100%" overflowY="auto" px={{base:0,lg:4}} py={{base:3,lg:4}} bg="rgba(4,6,8,.44)" backdropFilter="blur(5px)" border="1px solid rgba(218,216,208,.16)" borderRadius="10px" boxShadow="0 14px 34px rgba(0,0,0,.36)"><Badge bg="rgba(0,0,0,.52)" color={room.tier>=4?'#d4b7b7':'#c9c7c0'} border="1px solid rgba(200,202,200,.22)" borderRadius="1px" px={2.5} py={.5} fontFamily="heading" letterSpacing=".12em">{s.inHell?'Tier 6':tier.name}</Badge><Center w={{base:'66px',lg:'82px'}} h={{base:'66px',lg:'82px'}} rounded="full" bg="radial-gradient(circle,rgba(255,255,255,.055),rgba(0,0,0,.55))" border="1px solid" borderColor={roomIdentity.color} boxShadow={`0 0 28px ${roomIdentity.glow}, inset 0 0 18px rgba(255,255,255,.025)`}><Icon as={roomIdentity.icon} boxSize={{base:6,lg:8}} color={roomIdentity.color}/></Center><Text fontFamily="heading" fontSize={{base:'lg',lg:'2xl'}} letterSpacing=".08em" fontWeight="700" color="#f0ede5" textShadow="0 2px 12px #000">{room.title}</Text><Box w="54px" h="1px" bg="linear-gradient(90deg,transparent,#8d3238,transparent)"/><Text fontSize={{base:'xs',lg:'sm'}} color="rgba(230,228,220,.72)" textAlign="center" lineHeight="1.75" px={{base:2,lg:5}}>{room.desc}</Text>{room.result&&<Badge px={3} py={1} maxW="100%" whiteSpace="normal" textAlign="center" lineHeight="1.4" colorScheme={resultColor}>{room.result}</Badge>}{interactive&&<Box id="room-interactive" w="100%" mt={2}>{interactive}</Box>}</VStack>}
           {roomIntro&&<Box position="absolute" zIndex={24} left="50%" transform="translateX(-50%)" w={{base:'calc(100% - 16px)',md:'calc(100% - 48px)',lg:'min(920px, calc(100% - 120px))'}} bottom={{base:2,md:3,lg:3}} maxH={{base:'54%',md:'48%',lg:'44%'}} overflowY="auto" p={{base:3,md:4}} bg="linear-gradient(180deg,rgba(3,5,8,.88),rgba(5,8,12,.92))" backdropFilter="blur(8px)" border="1px solid rgba(235,232,220,.34)" borderRadius="10px" boxShadow="0 18px 45px rgba(0,0,0,.58)">
             <HStack mb={2} spacing={2}><Badge bg="rgba(123,36,44,.86)" color="white" px={2} py={.5}>{novelSpeaker}</Badge><Text fontSize="9px" color="gray.400">{room.title}</Text></HStack>
             <Text color="#f3efe7" fontSize={{base:'sm',md:'md'}} lineHeight="1.9" textShadow="0 2px 8px #000">{room.desc}</Text>
@@ -1301,24 +1379,25 @@ export default function InfiniteElevator(){
         </Flex>
 
         {rankedActive&&<>
-          <Box position="absolute" left={{base:2,md:'auto'}} right={{base:2,md:3}} top={{base:'132px',md:'82px'}} zIndex={24} w={{base:'auto',md:'390px'}} p={{base:1.5,md:2}} bg="rgba(6,7,9,.84)" border="1px solid rgba(250,204,21,.32)" borderRadius="9px" backdropFilter="blur(9px)">
-            <HStack justify="space-between" mb={1.5}><HStack spacing={1}><Icon as={FaTrophy} color="yellow.300" boxSize={2.5}/><Text fontSize={{base:'7px',md:'8px'}} color="yellow.100" fontWeight="900">CPU状況</Text></HStack><Text fontSize="6px" color="gray.400">タップで詳細</Text></HStack>
-            <SimpleGrid columns={3} spacing={1}>{rankedCpus.map(cpu=><Button key={cpu.id} h="auto" minW={0} px={{base:1,md:1.5}} py={{base:1.5,md:2}} display="block" textAlign="left" bg={selectedRankCpuId===cpu.id?'rgba(92,66,16,.72)':'rgba(0,0,0,.52)'} border="1px solid" borderColor={selectedRankCpuId===cpu.id?'yellow.500':'whiteAlpha.160'} borderRadius="7px" _hover={{bg:'rgba(42,42,42,.76)',borderColor:'yellow.400'}} onClick={()=>setSelectedRankCpuId(id=>id===cpu.id?null:cpu.id)}>
-              <Text noOfLines={1} fontSize={{base:'6px',md:'7px'}} color="white" fontWeight="900">{cpu.name}</Text>
-              <Text mt={.5} fontFamily="mono" fontSize={{base:'9px',md:'11px'}} color="cyan.100" fontWeight="900">{cpu.floor}F</Text>
+          <Box position="absolute" left={{base:2,md:'auto'}} right={{base:2,md:3}} top={{base:'126px',md:'76px'}} zIndex={24} w={{base:'auto',md:'430px'}} p={{base:1,md:1.5}} bg="rgba(6,7,9,.84)" border="1px solid rgba(250,204,21,.32)" borderRadius="8px" backdropFilter="blur(9px)">
+            <HStack justify="space-between" mb={1}><HStack spacing={1}><Icon as={FaTrophy} color="yellow.300" boxSize={2.5}/><Text fontSize={{base:'7px',md:'8px'}} color="yellow.100" fontWeight="900">CPU状況</Text></HStack><Text fontSize="6px" color="gray.400">タップで詳細</Text></HStack>
+            <SimpleGrid columns={4} spacing={1}>{rankedCpus.map(cpu=><Button key={cpu.id} h="auto" minW={0} px={{base:.75,md:1}} py={{base:1,md:1.25}} display="block" textAlign="left" bg={selectedRankCpuId===cpu.id?'rgba(92,66,16,.72)':'rgba(0,0,0,.52)'} border="1px solid" borderColor={selectedRankCpuId===cpu.id?'yellow.500':'whiteAlpha.160'} borderRadius="6px" _hover={{bg:'rgba(42,42,42,.76)',borderColor:'yellow.400'}} onClick={()=>setSelectedRankCpuId(id=>id===cpu.id?null:cpu.id)}>
+              <Text noOfLines={1} fontSize={{base:'5px',md:'7px'}} color="white" fontWeight="900">{cpu.name}</Text>
+              <Text mt={.25} fontFamily="mono" fontSize={{base:'8px',md:'10px'}} color="cyan.100" fontWeight="900">{cpu.floor}F</Text>
               <Text fontSize={{base:'5px',md:'6px'}} color="yellow.100">残 {cpu.turns}</Text>
               <Text fontSize={{base:'5px',md:'6px'}} color="green.100">運 {cpu.luck}</Text>
+              <Text noOfLines={1} fontSize={{base:'5px',md:'6px'}} color="orange.100">¥{cpu.money.toLocaleString()}</Text>
               <Text fontSize={{base:'5px',md:'6px'}} color="blue.100">道具 {cpu.items.length}</Text>
             </Button>)}</SimpleGrid>
-            <Flex mt={1.5} align="center" justify="space-between" gap={2}><Text noOfLines={1} fontSize="6px" color="cyan.100">あなた {s.floor}F / 残{s.turnsLeft} / 運{s.luck}</Text>{rankedPlayerFinished&&<Text noOfLines={1} fontSize="6px" color="orange.200">CPU進行中</Text>}</Flex>
+            {(()=>{const liveOrder=rankMatchOrder({name:nickname||'あなた',floor:s.floor,luck:s.luck,money:s.money},rankedCpus);return <Box mt={1} pt={1} borderTop="1px solid rgba(255,255,255,.10)"><Flex justify="space-between" align="center" mb={.5}><Text fontSize="6px" color="gray.400" fontWeight="800">現在の階数順位</Text>{rankedPlayerFinished&&<Text fontSize="6px" color="orange.200">CPU進行中</Text>}</Flex><SimpleGrid columns={5} spacing={.5}>{liveOrder.map((row,i)=><Box key={`live-rank-${row.id}`} minW={0} px={.5} py={.5} textAlign="center" bg={row.isPlayer?'rgba(34,211,238,.10)':'rgba(255,255,255,.035)'} border="1px solid" borderColor={row.isPlayer?'rgba(103,232,249,.28)':'rgba(255,255,255,.07)'} borderRadius="5px"><Text fontSize="5px" color={i<3?'yellow.200':'gray.400'} fontWeight="900">{i+1}位</Text><Text noOfLines={1} fontSize="5px" color={row.isPlayer?'cyan.100':'gray.200'}>{row.isPlayer?'あなた':row.name}</Text><Text noOfLines={1} fontFamily="mono" fontSize={{base:'6px',md:'7px'}} color="white" fontWeight="900">{row.floor}F</Text></Box>)}</SimpleGrid></Box>})()}
           </Box>
-          {selectedRankCpuId&&(()=>{const cpu=rankedCpus.find(c=>c.id===selectedRankCpuId);return cpu?<Box position="absolute" right={{base:2,md:3}} top={{base:'242px',md:'226px'}} zIndex={25} w={{base:'220px',md:'280px'}} overflow="hidden" bg="rgba(4,5,7,.94)" border="1px solid rgba(250,204,21,.42)" borderRadius="9px" boxShadow="0 10px 28px rgba(0,0,0,.52)">
-            <Box h={{base:'74px',md:'96px'}} bgImage={`linear-gradient(180deg,rgba(0,0,0,.04),rgba(0,0,0,.82)),url(${process.env.NEXT_PUBLIC_BASE_PATH||''}/${cpu.roomImage})`} bgSize="cover" bgPosition="center" position="relative">
+          {selectedRankCpuId&&(()=>{const cpu=rankedCpus.find(c=>c.id===selectedRankCpuId);return cpu?<Box position="absolute" right={{base:2,md:3}} top={{base:'246px',md:'228px'}} zIndex={25} w={{base:'210px',md:'260px'}} overflow="hidden" bg="rgba(4,5,7,.94)" border="1px solid rgba(250,204,21,.42)" borderRadius="9px" boxShadow="0 10px 28px rgba(0,0,0,.52)">
+            <Box h={{base:'66px',md:'82px'}} bgImage={`linear-gradient(180deg,rgba(0,0,0,.04),rgba(0,0,0,.82)),url(${process.env.NEXT_PUBLIC_BASE_PATH||''}/${cpu.roomImage})`} bgSize="cover" bgPosition="center" position="relative">
               <HStack position="absolute" top={1.5} left={1.5} right={1.5} justify="space-between"><Badge fontSize="6px" colorScheme="purple">CPU</Badge><IconButton aria-label="詳細を閉じる" size="xs" minW="22px" h="22px" fontSize="10px" variant="solid" bg="blackAlpha.700" color="white" _hover={{bg:'blackAlpha.800'}} icon={<Text>×</Text>} onClick={()=>setSelectedRankCpuId(null)}/></HStack>
               <Box position="absolute" left={2} right={2} bottom={1.5}><Text noOfLines={1} fontSize={{base:'9px',md:'11px'}} color="white" fontWeight="900" textShadow="0 1px 4px #000">{cpu.name}</Text><Text noOfLines={1} fontSize={{base:'7px',md:'8px'}} color="whiteAlpha.850" textShadow="0 1px 4px #000">{cpu.roomTitle}</Text></Box>
             </Box>
-            <Box p={{base:2,md:2.5}}>
-              <HStack justify="space-between" spacing={2}><Text fontSize="9px" color="cyan.100" fontWeight="900">{cpu.floor}F</Text><Text fontSize="8px" color="yellow.100">残り {cpu.turns}</Text><Text fontSize="8px" color="green.100">運気 {cpu.luck}</Text></HStack>
+            <Box p={{base:1.5,md:2}}>
+              <SimpleGrid columns={4} spacing={1}><Text fontSize="8px" color="cyan.100" fontWeight="900">{cpu.floor}F</Text><Text fontSize="7px" color="yellow.100">残 {cpu.turns}</Text><Text fontSize="7px" color="green.100">運 {cpu.luck}</Text><Text noOfLines={1} fontSize="7px" color="orange.100">¥{cpu.money.toLocaleString()}</Text></SimpleGrid>
               <Text mt={2} fontSize="6px" color="gray.500">所持アイテム</Text>
               <Flex mt={1} gap={1} wrap="wrap">{cpu.items.length===0?<Text fontSize="7px" color="gray.400">なし</Text>:cpu.items.map((it,i)=><Badge key={`${cpu.id}-detail-${it}-${i}`} fontSize="6px" colorScheme="blue">{RANK_CPU_ITEM_LABELS[it]}</Badge>)}</Flex>
               <Box mt={2} pt={1.5} borderTop="1px solid rgba(255,255,255,.10)"><Text fontSize="6px" color="gray.500">直前の行動</Text><Text mt={.5} noOfLines={2} fontSize="7px" color="gray.200">{cpu.lastAction}</Text></Box>
@@ -1363,8 +1442,8 @@ export default function InfiniteElevator(){
           <Bullet>ランキングの主な記録は <b>最終到達階数</b> です。高階層を目指しましょう。</Bullet>
         </HelpSection>
         <HelpSection title="コンピュータ戦">
-          <Bullet>プレイヤー1人とCPU3人で4人対戦します。最終到達階数が高い順に順位を決めます。</Bullet>
-          <Bullet>順位報酬は <b>1位 +3 / 2位 +1 / 3位 -1 / 4位 -2 トロフィー</b> です。</Bullet>
+          <Bullet>プレイヤー1人とCPU4人で5人対戦します。最終到達階数が高い順に順位を決めます。</Bullet>
+          <Bullet>順位報酬は <b>1位 +3 / 2位 +1 / 3位 0 / 4位 -1 / 5位 -2 トロフィー</b> です。</Bullet>
           <Bullet>プレイヤーがボタンを押すたび、残り回数があるCPUも同じタイミングで1部屋進みます。</Bullet>
           <Bullet>プレイヤー終了後もCPUに残り回数がある場合、CPUは3秒ごとに1部屋進み、全員終了後に順位を確定します。</Bullet>
           <Bullet>CPUもゲーム中にアイテムを獲得・使用することがあります。</Bullet>
@@ -1419,7 +1498,7 @@ export default function InfiniteElevator(){
         </HelpSection>
       </InfoModal>
       <Modal isOpen={rankedResult.isOpen} onClose={()=>{}} closeOnOverlayClick={false} isCentered><ModalOverlay bg="blackAlpha.850" backdropFilter="blur(7px)"/><ModalContent bg="linear-gradient(180deg,#1d1809,#07080a)" maxW={{base:'360px',md:'470px'}} border="1px solid rgba(250,204,21,.38)" borderRadius="8px"><ModalHeader textAlign="center" fontFamily="heading" color="yellow.100">コンピュータ戦結果</ModalHeader><ModalBody>
-        {rankedMatchResult&&<><Center><VStack spacing={1}><Icon as={FaTrophy} boxSize={9} color={rankedMatchResult.place===1?'yellow.300':'gray.300'}/><Text fontFamily="heading" fontSize="4xl" color="#fff2bd" fontWeight="900">{rankedMatchResult.place}位</Text><Badge colorScheme={rankedMatchResult.delta>0?'green':'red'} fontSize="sm">トロフィー {rankedMatchResult.delta>0?'+':''}{rankedMatchResult.delta}</Badge></VStack></Center>
+        {rankedMatchResult&&<><Center><VStack spacing={1}><Icon as={FaTrophy} boxSize={9} color={rankedMatchResult.place===1?'yellow.300':'gray.300'}/><Text fontFamily="heading" fontSize="4xl" color="#fff2bd" fontWeight="900">{rankedMatchResult.place}位</Text><Badge colorScheme={rankedMatchResult.delta>0?'green':rankedMatchResult.delta<0?'red':'gray'} fontSize="sm">トロフィー {rankedMatchResult.delta>0?'+':''}{rankedMatchResult.delta}</Badge></VStack></Center>
         <Stack mt={4} spacing={1}>{rankedMatchResult.order.map((row,i)=><Flex key={row.id} p={2.5} bg={row.isPlayer?'rgba(34,211,238,.08)':'rgba(255,255,255,.035)'} border="1px solid" borderColor={row.isPlayer?'rgba(103,232,249,.28)':'rgba(255,255,255,.08)'} borderRadius="6px" align="center"><Text w="34px" color={i<3?'yellow.200':'gray.500'} fontWeight="900">{i+1}位</Text><Text flex="1" color={row.isPlayer?'cyan.100':'#eee9df'} fontWeight={row.isPlayer?'900':'700'}>{row.name}{row.isPlayer?'（あなた）':''}</Text><Text color="#f0d9aa" fontWeight="900">{row.floor.toLocaleString()}階</Text></Flex>)}</Stack>
         <Flex mt={4} p={3} justify="space-between" bg="blackAlpha.400" borderRadius="8px"><Text fontSize="11px" color="gray.400">今週のトロフィー</Text><Text fontFamily="mono" color="yellow.200" fontWeight="900">{rankedMatchResult.before} → {rankedMatchResult.after}</Text></Flex></>}
       </ModalBody><ModalFooter><Button w="100%" colorScheme="yellow" color="black" onClick={()=>{rankedResult.onClose();setRankedActive(false);setSelectedRankCpuId(null);setRankedPlayerFinished(false);setMenu(true);}}>メインメニューへ</Button></ModalFooter></ModalContent></Modal>

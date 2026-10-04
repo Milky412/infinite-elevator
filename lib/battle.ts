@@ -19,6 +19,9 @@ export type BattleProgress = {
   finished:boolean;
   roomTitle?:string;
   phase?:'ready'|'dialogue'|'moving'|'event'|'finished';
+  luck?:number;
+  money?:number;
+  items?:string[];
 };
 export type BattlePlayer = { uid:string; name:string; progress:BattleProgress };
 export type BattleRoom = {
@@ -32,7 +35,7 @@ export type BattleRoom = {
 };
 
 const roles:BattleRole[]=['p1','p2','p3','p4'];
-const initialProgress:BattleProgress={floor:1,turns:10,finished:false,roomTitle:'エレベーターホール',phase:'ready'};
+const initialProgress:BattleProgress={floor:1,turns:10,finished:false,roomTitle:'エレベーターホール',phase:'ready',luck:0,money:1000,items:[]};
 
 async function ensureUser(){
   if(!firebaseReady||!auth) throw new Error('Firebase is not configured');
@@ -114,6 +117,9 @@ export async function updateBattleProgress(code:string,role:BattleRole,progress:
   const floor=Math.max(1,Math.floor(progress.floor));
   const turns=Math.max(0,Math.floor(progress.turns));
   const roomTitle=(progress.roomTitle||'エレベーターホール').slice(0,40);
+  const luck=Math.max(-9999,Math.min(9999,Math.floor(progress.luck||0)));
+  const money=Math.max(0,Math.min(999999999,Math.floor(progress.money||0)));
+  const items=(progress.items||[]).slice(0,3).map(x=>String(x).slice(0,24));
 
   // 通常の進行同期では players 全体を書き戻さない。
   // 以前は複数人が同時更新すると、古い snapshot の players で他プレイヤーの
@@ -124,6 +130,9 @@ export async function updateBattleProgress(code:string,role:BattleRole,progress:
       [`players.${role}.progress.turns`]:turns,
       [`players.${role}.progress.roomTitle`]:roomTitle,
       [`players.${role}.progress.phase`]:progress.phase||'ready',
+      [`players.${role}.progress.luck`]:luck,
+      [`players.${role}.progress.money`]:money,
+      [`players.${role}.progress.items`]:items,
       updatedAt:serverTimestamp(),
     });
     return;
@@ -138,7 +147,7 @@ export async function updateBattleProgress(code:string,role:BattleRole,progress:
     const player=room.players?.[role];
     if(!player||player.uid!==user.uid) throw new Error('対戦プレイヤーを確認できません');
 
-    const finalProgress:BattleProgress={floor,turns,finished:true,roomTitle,phase:'finished'};
+    const finalProgress:BattleProgress={floor,turns,finished:true,roomTitle,phase:'finished',luck,money,items};
     const nextPlayers={...(room.players||{}),[role]:{...player,progress:finalProgress}};
     const joined=roles.flatMap(r=>nextPlayers[r]?[nextPlayers[r]!]:[]);
     const allFinished=joined.length===room.maxPlayers&&joined.every(p=>p.progress?.finished===true);
