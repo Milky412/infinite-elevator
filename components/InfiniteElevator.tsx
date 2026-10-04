@@ -82,7 +82,9 @@ export default function InfiniteElevator(){
   const [itemGrantQueue,setItemGrantQueue]=useState<Item[]>([]);
   const [rareArrival,setRareArrival]=useState(0);
   const [doorChoices,setDoorChoices]=useState<DoorChoice[]>([]);
-  const [gameSpeed,setGameSpeed]=useState<1|2>(1);
+  const [gameSpeed,setGameSpeed]=useState<1|2|3>(1);
+  // 開発者プレイ専用。AUTOは会話送りと通常のエレベーター操作だけを自動化し、選択が必要なイベントでは待機する。
+  const [devAutoPlay,setDevAutoPlay]=useState(false);
   const fastTimeout=(fn:()=>void,ms:number)=>window.setTimeout(fn,ms/gameSpeed);
   const fastInterval=(fn:()=>void,ms:number)=>window.setInterval(fn,ms/gameSpeed);
   const rules=useDisclosure(), guide=useDisclosure(), itemGuide=useDisclosure(), rank=useDisclosure(), stagePreview=useDisclosure(), inventoryPanel=useDisclosure(), logPanel=useDisclosure(), nameEdit=useDisclosure(), historyModal=useDisclosure(), resetRecords=useDisclosure(), battleLobby=useDisclosure(), battleResult=useDisclosure();
@@ -521,7 +523,34 @@ export default function InfiniteElevator(){
       fastTimeout(()=>{
         window.clearInterval(timer);
         setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:`素の上昇値：基礎${base} + 運気(${effectiveLuck})×${luckMult}`,locked:true});
-        const finish=()=>{const multDetail=[mirrorMul>1?`乱反射×${mirrorMul}`:'',yataMul>1?'八咫鏡×2':''].filter(Boolean).join(' ＋ ');setOverlay({show:true,tier:targetTier,steps:finalSteps,detail:multDetail?`✨ ${multDetail} 適用！ ${rawSteps} → ${finalSteps}階 ✨`:`上昇階数 +${finalSteps} 確定！`,locked:true});playSfx(targetTier>=3?'jackpot':'arrive',soundOn);fastTimeout(()=>{setOverlay(o=>({...o,show:false}));setS(y=>({...y,floor:y.floor+finalSteps,logs:[`【ボタン】演出${targetTier}! +${finalSteps}階登った！`,...y.logs]}));fastTimeout(()=>{playSfx('arrive',soundOn);triggerRoom();setDoors(true);setMoving(false);},180);},900);};
+        // 最終的な上昇階数を見せたあと、移動演出を挟んで到着階を明示する。
+        const finish=()=>{
+          const multDetail=[mirrorMul>1?`乱反射×${mirrorMul}`:'',yataMul>1?'八咫鏡×2':''].filter(Boolean).join(' ＋ ');
+          const destinationFloor=x.floor+finalSteps;
+          setOverlay({
+            show:true,
+            tier:targetTier,
+            steps:finalSteps,
+            detail:multDetail?`✨ ${multDetail} 適用！ ${rawSteps} → ${finalSteps}階 / ${finalSteps}階上に進む`:`${finalSteps}階上に進む`,
+            locked:true,
+          });
+          playSfx(targetTier>=3?'jackpot':'arrive',soundOn);
+          fastTimeout(()=>{
+            setOverlay(o=>({...o,show:false}));
+            setFloorTransition({show:true,from:x.floor,to:destinationFloor,label:'エレベーター上昇',phase:'上昇中…'});
+            setS(y=>({...y,floor:y.floor+finalSteps,logs:[`【ボタン】演出${targetTier}! +${finalSteps}階登った！`,...y.logs]}));
+            fastTimeout(()=>{
+              setFloorTransition({show:true,from:x.floor,to:destinationFloor,label:'エレベーター上昇',phase:`${destinationFloor}階に到着`});
+              playSfx('arrive',soundOn);
+            },420);
+            fastTimeout(()=>{
+              setFloorTransition(t=>({...t,show:false}));
+              triggerRoom();
+              setDoors(true);
+              setMoving(false);
+            },900);
+          },900);
+        };
         if(mirrorMul>1){fastTimeout(()=>{playSfx('item',soundOn);setOverlay({show:true,tier:targetTier,steps:rawSteps,detail:`🪞 乱反射の鏡★${mirrorMul} 発動！ ${rawSteps}階を ×${mirrorMul} へ！`,locked:true});fastTimeout(finish,900);},650);}else{fastTimeout(finish,650);}
       },revealDelay);
     },420);
@@ -973,6 +1002,29 @@ export default function InfiniteElevator(){
   const finalMode=s.turnsLeft<=0 && !moving && !gameover;
   const disabled=finalMode ? (moving||gameover||slotSpinning||bj.playing) : (moving||gameover||slotSpinning||bj.playing||s.inHell);
 
+  // 開発者AUTO: 演出中は待機し、会話は自動で送り、操作不要の部屋だけ次のボタンを押す。
+  // interactive が存在する部屋（ショップ・選択イベント等）は意図しない選択を避けるため自動操作しない。
+  useEffect(()=>{
+    if(!masterActive||!devAutoPlay||menu||gameover||battleRunFinished)return;
+    if(moving||eventAnimating||floorTransition.show||overlay.show||slotSpinning||bj.playing)return;
+    const timer=window.setTimeout(()=>{
+      if(roomIntro){setRoomIntro(false);return;}
+      if(interactive||s.inHell)return;
+      if(finalMode){end();return;}
+      press();
+    },Math.max(120,420/gameSpeed));
+    return ()=>window.clearTimeout(timer);
+  // press/end は最新stateを参照するため、進行状態が変わるたびに再評価する。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[masterActive,devAutoPlay,menu,gameover,battleRunFinished,moving,eventAnimating,floorTransition.show,overlay.show,slotSpinning,bj.playing,roomIntro,interactive,s.inHell,finalMode,gameSpeed,room.title,s.floor,s.turnsLeft]);
+
+  // 開発者プレイを終了したら、専用機能が通常プレイへ残らないよう初期化する。
+  useEffect(()=>{
+    if(masterActive)return;
+    if(devAutoPlay)setDevAutoPlay(false);
+    if(gameSpeed===3)setGameSpeed(1);
+  },[masterActive,devAutoPlay,gameSpeed]);
+
   const scoreHasSaveTarget=Boolean(scorePreview&&(scorePreview.monthly.eligible||scorePreview.alltime.eligible));
   // 登録可否は端末内の総合最高記録ではなく、月間/総合ランキングそれぞれの自己ベスト更新で判定する。
   const scoreCanRegister=firebaseReady?scoreHasSaveTarget:newPersonalBest;
@@ -1041,12 +1093,12 @@ export default function InfiniteElevator(){
               <Grid gridArea="stats" templateColumns="minmax(0,.82fr) minmax(0,.82fr) minmax(0,1.36fr)" gap={{base:1,md:1.5}} minW={0} w="100%">
                 {[[FaBolt,'残り',s.turnsLeft,'yellow.300','turns'],[FaStar,'運気',s.luck,'green.300','luck'],[FaCoins,'所持金',s.money,'yellow.200','money']].map(([ic,l,v,c,key]:any)=>{const moneyText=key==='money'?`${Number(v).toLocaleString('ja-JP')}円`:'';const moneyLen=moneyText.length;return <Button key={l} minW={0} w="100%" h={{base:'38px',md:'52px'}} px={{base:key==='money'?1.5:1,md:key==='money'?2.5:2}} py={{base:1,md:1.5}} justifyContent="flex-start" overflow="hidden" bg="rgba(0,0,0,.48)" border="1px solid rgba(255,255,255,.12)" borderRadius="8px" _hover={{bg:'rgba(255,255,255,.12)',borderColor:'rgba(255,255,255,.22)'}} _active={{transform:'translateY(1px)'}} onClick={()=>setStatusDetail(key)}><HStack spacing={{base:.75,md:1.25}} minW={0} w="100%"><Icon as={ic} color={c} boxSize={{base:3.5,md:4}} flexShrink={0}/><Box minW={0} textAlign="left" flex="1" overflow="hidden"><Text fontSize={{base:'7px',md:'9px'}} color="gray.300" fontWeight="700" noOfLines={1}>{l}</Text><Text fontSize={key==='money'?{base:moneyLen>=13?'8px':moneyLen>=11?'9px':'11px',md:moneyLen>=15?'10px':moneyLen>=12?'12px':'14px'}:{base:'11px',md:'15px'}} lineHeight="1.15" fontFamily="mono" fontWeight="900" color={c} whiteSpace="nowrap" letterSpacing={key==='money'&&moneyLen>=11?'-0.04em':undefined} overflow="hidden" textOverflow="clip">{key==='money'?moneyText:v}</Text></Box></HStack></Button>})}
               </Grid>
-              <HStack gridArea="controls" spacing={1} flexShrink={0} justify="flex-end"><Button size="xs" minW={{base:'34px',md:'38px'}} h={{base:'24px',md:'28px'}} px={1.5} bg={gameSpeed===2?'#521920':'rgba(255,255,255,.07)'} color="white" border="1px solid rgba(200,200,200,.18)" onClick={()=>setGameSpeed(v=>v===1?2:1)}>×{gameSpeed}</Button><IconButton aria-label="bgm" size="xs" h={{base:'24px',md:'28px'}} minW={{base:'24px',md:'28px'}} variant="ghost" color={soundOn?'#ddd7cb':'gray.500'} icon={soundOn?<FaVolumeHigh/>:<FaVolumeXmark/>} onClick={()=>setSoundOn(v=>!v)}/></HStack>
+              <HStack gridArea="controls" spacing={1} flexShrink={0} justify="flex-end">{masterActive&&<Button size="xs" minW={{base:'42px',md:'50px'}} h={{base:'24px',md:'28px'}} px={1.5} bg={devAutoPlay?'#6b5208':'rgba(255,255,255,.07)'} color={devAutoPlay?'yellow.100':'white'} border="1px solid" borderColor={devAutoPlay?'yellow.400':'rgba(200,200,200,.18)'} onClick={()=>setDevAutoPlay(v=>!v)}>{devAutoPlay?'AUTO':'AUTO'}</Button>}<Button size="xs" minW={{base:'34px',md:'38px'}} h={{base:'24px',md:'28px'}} px={1.5} bg={(masterActive?gameSpeed===3:gameSpeed===2)?'#521920':'rgba(255,255,255,.07)'} color="white" border="1px solid rgba(200,200,200,.18)" onClick={()=>setGameSpeed(v=>masterActive?(v===3?1:3):(v===2?1:2))}>×{gameSpeed}</Button><IconButton aria-label="bgm" size="xs" h={{base:'24px',md:'28px'}} minW={{base:'24px',md:'28px'}} variant="ghost" color={soundOn?'#ddd7cb':'gray.500'} icon={soundOn?<FaVolumeHigh/>:<FaVolumeXmark/>} onClick={()=>setSoundOn(v=>!v)}/></HStack>
             </Grid>
             <HStack spacing={1.5} align="center" justify="flex-start" w="100%">
               <Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={inventoryPanel.onOpen}>アイテム {s.items.length}/3</Button>
               <Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="whiteAlpha.300" bg="rgba(0,0,0,.36)" onClick={logPanel.onOpen}>ログ</Button>
-              {masterActive&&<Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="yellow.400" color="yellow.100" bg="rgba(72,51,8,.58)" _hover={{bg:'rgba(110,76,8,.76)'}} onClick={()=>{setGameover(false);setMasterActive(false);masterRoomQueueRef.current=[];setMenu(true);}}>タイトルに戻る</Button>}
+              {masterActive&&<><Badge fontSize="7px" colorScheme={devAutoPlay?'yellow':'gray'}>{devAutoPlay?(interactive||s.inHell?'AUTO 待機':'AUTO 実行中'):'AUTO OFF'}</Badge><Badge fontSize="7px" colorScheme={gameSpeed===3?'red':'gray'}>DEV ×{gameSpeed}</Badge><Button h={{base:'24px',md:'28px'}} size="xs" variant="outline" borderColor="yellow.400" color="yellow.100" bg="rgba(72,51,8,.58)" _hover={{bg:'rgba(110,76,8,.76)'}} onClick={()=>{setDevAutoPlay(false);setGameSpeed(1);setGameover(false);setMasterActive(false);masterRoomQueueRef.current=[];setMenu(true);}}>タイトルに戻る</Button></>}
               {(s.ringBuff.active||s.mirrorMultiplier>1||s.partySet)&&<HStack spacing={1} flexWrap="wrap">{s.ringBuff.active&&<Badge fontSize="7px" colorScheme="green">指輪+{s.ringBuff.amount} / 残り{s.ringBuff.turns}</Badge>}{s.mirrorMultiplier>1&&<Badge fontSize="7px" colorScheme="cyan">鏡×{s.mirrorMultiplier}</Badge>}{s.partySet&&<Badge fontSize="7px" colorScheme="pink">演出強化</Badge>}</HStack>}
             </HStack>
             <Box w="100%" overflowX="auto" overflowY="hidden" sx={{WebkitOverflowScrolling:'touch'}}>
