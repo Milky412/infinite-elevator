@@ -275,9 +275,9 @@ GitHub Actions 経由でビルドしてください。`next.config.mjs` が Acti
 Actionsログの `Install dependencies` と `Build static site` を確認してください。Firebaseを使わない場合、Firebase用Repository Variablesは空でもゲーム本体はビルド可能です。
 
 
-## ランク戦ランキング用 Firestore Rules
+## コンピュータ戦ランキング用 Firestore Rules
 
-ランク戦では次のコレクションを使用します。
+コンピュータ戦では次のコレクションを使用します。
 
 ```text
 trophyRankingsWeekly/{weekKey}/entries/{playerId}
