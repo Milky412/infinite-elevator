@@ -293,3 +293,37 @@ firebase deploy --only firestore:rules
 ```
 
 ルールを反映しない場合、トロフィーランキングの読み書きが `permission-denied` になることがあります。
+
+## 5. Firebase Hosting へ公開する場合
+
+このプロジェクトは静的書き出し (`output: 'export'`) を使用するため、Firebase Hosting では `out/` を公開します。`firebase.json` にはHosting設定とキャッシュ設定を含めています。
+
+```bash
+npm install
+npm run build
+firebase deploy --only hosting
+```
+
+初回だけFirebaseプロジェクトの紐付けが必要な場合は、プロジェクトルートで次を実行します。
+
+```bash
+firebase use --add
+```
+
+一覧からこのゲームで使用するFirebaseプロジェクトを選択してください。
+
+### 無料枠を節約するための設定
+
+この版では以下を自動で行います。
+
+```text
+スタート背景: WebP
+スタートBGM: 圧縮MP3
+ステージ画像: 圧縮WebP
+Next.js静的ファイル: 長期キャッシュ
+ステージ画像: 7日キャッシュ
+バージョン付きスタート素材: 30日キャッシュ
+オンライン進捗: 900msデバウンス同期
+```
+
+`firebase.json` のキャッシュ設定を削除すると再訪時のHosting転送量が増えるため、特別な理由がなければ残してください。

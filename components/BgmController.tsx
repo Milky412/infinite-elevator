@@ -13,7 +13,7 @@ export default function BgmController() {
 
   useEffect(() => {
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
-    const audio = new Audio(`${basePath}/start-menu-bgm.mp3`);
+    const audio = new Audio(`${basePath}/start-menu-bgm-v146.mp3`);
     audio.loop = true;
     audio.preload = 'auto';
     audio.volume = MENU_VOLUME;

@@ -131,8 +131,8 @@ export default function InfiniteElevator(){
   const [trophyRankingRows,setTrophyRankingRows]=useState<TrophyRankingEntry[]>([]);
   const [myTrophyRanking,setMyTrophyRanking]=useState<null|{entry:TrophyRankingEntry;rank:number|null}>(null);
   const [trophyRankingLoading,setTrophyRankingLoading]=useState(false);
-  const menuVisualSrc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-v45.png`;
-  const menuVisualSrcPc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-pc-v58.png`;
+  const menuVisualSrc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-v146.webp`;
+  const menuVisualSrcPc=`${process.env.NEXT_PUBLIC_BASE_PATH||''}/start-screen-pc-v146.webp`;
 
   useEffect(()=>{
     if(menu)return;
@@ -269,12 +269,19 @@ export default function InfiniteElevator(){
   useEffect(()=>{
     if(room.kind!=='vending') setVendingFeedback(null);
   },[room.kind,room.title]);
+  // オンライン対戦のFirestore同期は、階数・残り回数・所持状態など
+  // プレイヤー間で本当に必要な値が変わった時だけ送る。演出フェーズの変化だけでは書き込まず、
+  // 900msのデバウンスで連続更新をまとめて無料枠のread/write消費を抑える。
   useEffect(()=>{
     if(!battleActive||battleRunFinished||!battleCode||!battleRole)return;
-    const phase:'ready'|'dialogue'|'moving'|'event' = roomIntro?'dialogue':(moving||floorTransition.show||overlay.show)?'moving':eventAnimating?'event':'ready';
-    const timer=window.setTimeout(()=>{void updateBattleProgress(battleCode,battleRole,{floor:s.floor,turns:s.turnsLeft,finished:false,roomTitle:room.title,phase,luck:s.luck,money:s.money,items:s.items.map(it=>it.name)});},320);
+    const timer=window.setTimeout(()=>{
+      void updateBattleProgress(battleCode,battleRole,{
+        floor:s.floor,turns:s.turnsLeft,finished:false,roomTitle:room.title,phase:'ready',
+        luck:s.luck,money:s.money,items:s.items.map(it=>it.name),
+      });
+    },900);
     return ()=>window.clearTimeout(timer);
-  },[battleActive,battleRunFinished,battleCode,battleRole,s.floor,s.turnsLeft,s.luck,s.money,s.items,room.title,roomIntro,moving,eventAnimating,floorTransition.show,overlay.show]);
+  },[battleActive,battleRunFinished,battleCode,battleRole,s.floor,s.turnsLeft,s.luck,s.money,s.items,room.title]);
   useEffect(()=>{
     if(!battleActive||!battleRunFinished||!battleRoom||!battleRole||battleResult.isOpen)return;
     const players=getBattlePlayers(battleRoom);
